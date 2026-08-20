@@ -3,6 +3,7 @@
 # =========================================================
 
 from phone_utils import analyze_phone
+from database import find_number
 
 
 # =========================================================
@@ -11,12 +12,12 @@ from phone_utils import analyze_phone
 
 def get_phone_source(phone, default_region="YE"):
     """
-    الحصول على معلومات الرقم من محرك الهاتف المحلي.
+    تحليل الرقم باستخدام محرك Phone Engine.
 
     المصدر:
     phone_utils / phonenumbers
 
-    لا يستخدم API خارجي.
+    لا يستخدم أي API خارجي.
     """
 
     result = analyze_phone(
@@ -47,20 +48,65 @@ def get_phone_source(phone, default_region="YE"):
 
 
 # =========================================================
+# 👤 Numberbook
+# =========================================================
+
+def get_numberbook_source(phone):
+    """
+    البحث عن الرقم داخل قاعدة Numberbook المحلية.
+
+    المصدر:
+    Numberbook
+
+    لا يستخدم أي خدمة خارجية.
+    """
+
+    result = find_number(phone)
+
+    if not result:
+
+        return {
+            "source": "Numberbook",
+            "source_type": "local",
+
+            "found": False,
+
+            "phone": phone,
+            "name": None,
+            "country": None,
+            "owner_user_id": None,
+            "created_at": None,
+        }
+
+    return {
+        "source": "Numberbook",
+        "source_type": "local",
+
+        "found": True,
+
+        "phone": result[0],
+        "name": result[1],
+        "country": result[2],
+        "owner_user_id": result[3],
+        "created_at": result[4],
+    }
+
+
+# =========================================================
 # 🔎 مدير مصادر البيانات
 # =========================================================
 
 def collect_phone_data(phone, default_region="YE"):
     """
-    تجميع بيانات الرقم من جميع المصادر المتوفرة.
+    تجميع معلومات الرقم من جميع المصادر المتوفرة.
 
-    حاليًا:
-    - Phone Engine
+    المصادر الحالية:
 
-    لاحقًا:
-    - Numberbook
-    - External Providers
-    - مصادر أخرى
+    1. Phone Engine
+    2. Numberbook
+
+    لاحقًا يمكن إضافة مصادر خارجية
+    بدون تغيير النظام الأساسي.
     """
 
     data = {
@@ -69,25 +115,81 @@ def collect_phone_data(phone, default_region="YE"):
     }
 
     # -----------------------------------------------------
-    # Phone Engine
+    # 📱 Phone Engine
     # -----------------------------------------------------
 
-    phone_data = get_phone_source(
+    phone_source = get_phone_source(
         phone,
         default_region=default_region
     )
 
-    if phone_data:
+    if phone_source:
 
         data["sources"].append(
-            phone_data
+            phone_source
+        )
+
+    # -----------------------------------------------------
+    # 👤 Numberbook
+    # -----------------------------------------------------
+
+    normalized_phone = None
+
+    if phone_source:
+
+        normalized_phone = phone_source.get(
+            "phone"
+        )
+
+    if normalized_phone:
+
+        numberbook_source = get_numberbook_source(
+            normalized_phone
+        )
+
+        data["sources"].append(
+            numberbook_source
         )
 
     return data
 
 
 # =========================================================
-# 🔍 البحث عن معلومة محددة
+# 🔍 الحصول على مصدر معين
+# =========================================================
+
+def get_source(
+    phone,
+    source_name,
+    default_region="YE"
+):
+    """
+    الحصول على بيانات مصدر معين.
+
+    مثال:
+
+    get_source(
+        "+967771234567",
+        "Numberbook"
+    )
+    """
+
+    data = collect_phone_data(
+        phone,
+        default_region=default_region
+    )
+
+    for source in data["sources"]:
+
+        if source.get("source") == source_name:
+
+            return source
+
+    return None
+
+
+# =========================================================
+# 🔍 الحصول على قيمة من المصادر
 # =========================================================
 
 def get_source_value(
@@ -96,7 +198,7 @@ def get_source_value(
     default_region="YE"
 ):
     """
-    الحصول على قيمة معينة من محرك المصادر.
+    البحث عن قيمة داخل المصادر.
 
     مثال:
 
@@ -115,7 +217,8 @@ def get_source_value(
 
         value = source.get(field)
 
-        if value:
+        if value is not None and value != "":
+
             return {
                 "value": value,
                 "source": source.get("source"),
@@ -123,6 +226,29 @@ def get_source_value(
             }
 
     return None
+
+
+# =========================================================
+# 👤 الحصول على اسم Numberbook
+# =========================================================
+
+def get_numberbook_name(phone):
+    """
+    الحصول على اسم الرقم من Numberbook فقط.
+    """
+
+    source = get_source(
+        phone,
+        "Numberbook"
+    )
+
+    if not source:
+        return None
+
+    if not source.get("found"):
+        return None
+
+    return source.get("name")
 
 
 # =========================================================
@@ -152,13 +278,84 @@ if __name__ == "__main__":
 
             print()
             print(f"📡 المصدر: {source['source']}")
-            print(f"📞 الرقم: {source['phone']}")
-            print(f"🌍 الدولة: {source['country']}")
-            print(f"📍 المنطقة: {source['region']}")
-            print(f"📱 النوع: {source['type']}")
-            print(f"📡 الشركة: {source['carrier']}")
-            print(f"🔢 الدولي: {source['international']}")
-            print(f"✅ الحالة: {source['status']}")
+
+            # ---------------------------------------------
+            # Phone Engine
+            # ---------------------------------------------
+
+            if source["source"] == "Phone Engine":
+
+                print(
+                    f"📞 الرقم: "
+                    f"{source.get('phone')}"
+                )
+
+                print(
+                    f"🌍 الدولة: "
+                    f"{source.get('country')}"
+                )
+
+                print(
+                    f"📍 المنطقة: "
+                    f"{source.get('region')}"
+                )
+
+                print(
+                    f"📱 النوع: "
+                    f"{source.get('type')}"
+                )
+
+                print(
+                    f"📡 الشركة: "
+                    f"{source.get('carrier')}"
+                )
+
+                print(
+                    f"🔢 الدولي: "
+                    f"{source.get('international')}"
+                )
+
+                print(
+                    f"✅ الحالة: "
+                    f"{source.get('status')}"
+                )
+
+            # ---------------------------------------------
+            # Numberbook
+            # ---------------------------------------------
+
+            elif source["source"] == "Numberbook":
+
+                print(
+                    f"📞 الرقم: "
+                    f"{source.get('phone')}"
+                )
+
+                if source.get("found"):
+
+                    print(
+                        f"👤 الاسم: "
+                        f"{source.get('name')}"
+                    )
+
+                    print(
+                        f"🌍 الدولة: "
+                        f"{source.get('country')}"
+                    )
+
+                    print(
+                        "✅ الحالة: موجود في Numberbook"
+                    )
+
+                else:
+
+                    print(
+                        "👤 الاسم: غير مسجل"
+                    )
+
+                    print(
+                        "❌ الحالة: غير موجود في Numberbook"
+                    )
 
     print()
     print("=" * 60)
