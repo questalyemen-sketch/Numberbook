@@ -7,6 +7,7 @@ from database import (
     init_database,
     add_user,
     add_number,
+    find_number,
     add_search,
     count_numbers,
     count_searches,
@@ -15,7 +16,10 @@ from database import (
 )
 
 from phone_utils import analyze_phone
-from data_sources import collect_phone_data
+
+from data_sources import (
+    collect_phone_data
+)
 
 
 # =========================================================
@@ -107,9 +111,8 @@ def start(message):
 🌍 تحليل الدولة
 📱 نوع الرقم
 📡 شركة الاتصالات
-🔢 الصيغة الدولية
-✅ التحقق من الرقم
-👤 البحث في Numberbook
+👤 Numberbook
+🌐 مصادر بيانات خارجية
 ➕ تسجيل رقمك
 🗑 حذف رقمك
 📊 إحصائيات
@@ -148,14 +151,13 @@ def help_command(message):
 
 يعرض:
 
-📞 الرقم
 🌍 الدولة
-📍 المنطقة
 📱 نوع الرقم
 📡 شركة الاتصالات
+✅ صحة الرقم
 🔢 الصيغة الدولية
-✅ حالة الرقم
-👤 بيانات Numberbook عند توفرها
+
+🌐 يتم استخدام مصادر بيانات خارجية عند توفرها.
 
 ➕ <b>إضافة رقمي</b>
 
@@ -165,7 +167,7 @@ def help_command(message):
 
 حذف الرقم الذي سجلته بنفسك.
 
-⚠️ يعتمد النظام على البيانات المسموح باستخدامها ولا يعتمد على قواعد بيانات مسروقة.
+⚠️ يعتمد النظام على البيانات المسموح باستخدامها.
 """,
         reply_markup=main_keyboard()
     )
@@ -180,9 +182,9 @@ def callback_handler(call):
 
     chat_id = call.message.chat.id
 
-    # ---------------------------------------
+    # -----------------------------------------------------
     # البحث
-    # ---------------------------------------
+    # -----------------------------------------------------
 
     if call.data == "search":
 
@@ -206,9 +208,9 @@ def callback_handler(call):
             process_search
         )
 
-    # ---------------------------------------
+    # -----------------------------------------------------
     # المعلومات
-    # ---------------------------------------
+    # -----------------------------------------------------
 
     elif call.data == "info":
 
@@ -232,9 +234,9 @@ def callback_handler(call):
             process_info
         )
 
-    # ---------------------------------------
+    # -----------------------------------------------------
     # إضافة رقم
-    # ---------------------------------------
+    # -----------------------------------------------------
 
     elif call.data == "add":
 
@@ -258,9 +260,9 @@ def callback_handler(call):
             process_add_phone
         )
 
-    # ---------------------------------------
+    # -----------------------------------------------------
     # حذف رقم
-    # ---------------------------------------
+    # -----------------------------------------------------
 
     elif call.data == "delete":
 
@@ -280,9 +282,9 @@ def callback_handler(call):
             process_delete
         )
 
-    # ---------------------------------------
+    # -----------------------------------------------------
     # الإحصائيات
-    # ---------------------------------------
+    # -----------------------------------------------------
 
     elif call.data == "stats":
 
@@ -307,15 +309,178 @@ def callback_handler(call):
             reply_markup=main_keyboard()
         )
 
-    # ---------------------------------------
+    # -----------------------------------------------------
     # المساعدة
-    # ---------------------------------------
+    # -----------------------------------------------------
 
     elif call.data == "help":
 
         bot.answer_callback_query(call.id)
 
         help_command(call.message)
+
+
+# =========================================================
+# بناء نتيجة البحث من Data Sources
+# =========================================================
+
+def build_search_result(phone):
+
+    data = collect_phone_data(
+        phone,
+        default_region="YE"
+    )
+
+    sources = data.get(
+        "sources",
+        []
+    )
+
+    phone_source = None
+    numberbook_source = None
+    veriphone_source = None
+
+    # -----------------------------------------------------
+    # استخراج المصادر
+    # -----------------------------------------------------
+
+    for source in sources:
+
+        source_name = source.get(
+            "source"
+        )
+
+        if source_name == "Phone Engine":
+
+            phone_source = source
+
+        elif source_name == "Numberbook":
+
+            numberbook_source = source
+
+        elif source_name == "Veriphone":
+
+            veriphone_source = source
+
+    # -----------------------------------------------------
+    # حماية
+    # -----------------------------------------------------
+
+    if not phone_source:
+
+        return None
+
+    # -----------------------------------------------------
+    # البيانات الأساسية
+    # -----------------------------------------------------
+
+    e164 = phone_source.get(
+        "phone"
+    )
+
+    country = phone_source.get(
+        "country",
+        "غير معروف"
+    )
+
+    number_type = phone_source.get(
+        "type",
+        "غير معروف"
+    )
+
+    carrier_name = phone_source.get(
+        "carrier",
+        "غير متوفر"
+    )
+
+    international = phone_source.get(
+        "international",
+        "غير متوفر"
+    )
+
+    valid = phone_source.get(
+        "valid",
+        False
+    )
+
+    # -----------------------------------------------------
+    # Numberbook
+    # -----------------------------------------------------
+
+    registered_name = "غير مسجل"
+
+    numberbook_found = False
+
+    if numberbook_source:
+
+        if numberbook_source.get("found"):
+
+            numberbook_found = True
+
+            registered_name = (
+                numberbook_source.get("name")
+                or
+                "غير مسجل"
+            )
+
+    # -----------------------------------------------------
+    # Veriphone
+    # -----------------------------------------------------
+
+    veriphone_ok = False
+
+    veriphone_country = None
+    veriphone_type = None
+    veriphone_carrier = None
+    veriphone_valid = None
+
+    if veriphone_source:
+
+        if veriphone_source.get("success"):
+
+            veriphone_ok = True
+
+            veriphone_country = (
+                veriphone_source.get(
+                    "country"
+                )
+            )
+
+            veriphone_type = (
+                veriphone_source.get(
+                    "type"
+                )
+            )
+
+            veriphone_carrier = (
+                veriphone_source.get(
+                    "carrier"
+                )
+            )
+
+            veriphone_valid = (
+                veriphone_source.get(
+                    "valid"
+                )
+            )
+
+    return {
+        "phone": e164,
+        "country": country,
+        "type": number_type,
+        "carrier": carrier_name,
+        "international": international,
+        "valid": valid,
+
+        "name": registered_name,
+        "numberbook_found": numberbook_found,
+
+        "veriphone_ok": veriphone_ok,
+        "veriphone_country": veriphone_country,
+        "veriphone_type": veriphone_type,
+        "veriphone_carrier": veriphone_carrier,
+        "veriphone_valid": veriphone_valid
+    }
 
 
 # =========================================================
@@ -330,14 +495,14 @@ def process_search(message):
 
         bot.send_message(
             message.chat.id,
-            "❌ أرسل رقم هاتف فقط.",
+            "❌ أرسل رقم هاتف صحيح.",
             reply_markup=main_keyboard()
         )
 
         return
 
     # -----------------------------------------------------
-    # التحليل الأولي
+    # التحليل الأولي لتوحيد الرقم
     # -----------------------------------------------------
 
     result = analyze_phone(
@@ -367,11 +532,7 @@ def process_search(message):
 
         bot.send_message(
             message.chat.id,
-            """
-❌ الرقم غير محتمل وفق نظام الترقيم.
-
-تحقق من الرقم وحاول مرة أخرى.
-""",
+            "❌ الرقم غير محتمل وفق نظام الترقيم.",
             reply_markup=main_keyboard()
         )
 
@@ -389,114 +550,156 @@ def process_search(message):
     )
 
     # -----------------------------------------------------
-    # 🔎 استدعاء محرك مصادر البيانات
+    # 🔥 استخدام Data Sources Engine
     # -----------------------------------------------------
 
-    data = collect_phone_data(
-        phone,
-        default_region="YE"
-    )
+    try:
 
-    # -----------------------------------------------------
-    # استخراج Phone Engine
-    # -----------------------------------------------------
+        search_result = build_search_result(
+            phone
+        )
 
-    phone_source = None
+    except Exception as error:
 
-    numberbook_source = None
-
-    for source in data.get("sources", []):
-
-        if source.get("source") == "Phone Engine":
-
-            phone_source = source
-
-        elif source.get("source") == "Numberbook":
-
-            numberbook_source = source
-
-    # -----------------------------------------------------
-    # حماية في حال تعذر مصدر الهاتف
-    # -----------------------------------------------------
-
-    if not phone_source:
+        print(
+            f"❌ Data Sources Error: {error}"
+        )
 
         bot.send_message(
             message.chat.id,
             """
-❌ تعذر الحصول على معلومات الرقم حاليًا.
+⚠️ حدث خطأ أثناء جمع البيانات.
 
-حاول مرة أخرى لاحقًا.
+تم الاحتفاظ بمحرك البحث الأساسي ويمكنك المحاولة مرة أخرى.
 """,
             reply_markup=main_keyboard()
         )
 
         return
 
+    if not search_result:
+
+        bot.send_message(
+            message.chat.id,
+            "❌ تعذر تحليل الرقم.",
+            reply_markup=main_keyboard()
+        )
+
+        return
+
     # -----------------------------------------------------
-    # بيانات Numberbook
+    # حالة الرقم
     # -----------------------------------------------------
 
-    if numberbook_source:
+    valid_status = (
+        "✅ رقم صالح"
+        if search_result["valid"]
+        else
+        "❌ رقم غير صالح"
+    )
 
-        if numberbook_source.get("found"):
+    # -----------------------------------------------------
+    # حالة Numberbook
+    # -----------------------------------------------------
 
-            name = (
-                numberbook_source.get("name")
-                or "غير معروف"
-            )
+    if search_result["numberbook_found"]:
 
-            database_status = (
-                "✅ الرقم موجود في Numberbook"
-            )
-
-        else:
-
-            name = "غير مسجل"
-
-            database_status = (
-                "❌ الرقم غير موجود في Numberbook"
-            )
+        numberbook_status = (
+            "✅ الرقم موجود في Numberbook"
+        )
 
     else:
 
-        name = "غير مسجل"
-
-        database_status = (
-            "⚠️ تعذر الوصول إلى مصدر Numberbook"
+        numberbook_status = (
+            "❌ الرقم غير موجود في Numberbook"
         )
 
     # -----------------------------------------------------
-    # بناء النتيجة
+    # بناء الرسالة
     # -----------------------------------------------------
 
     text = f"""
 <b>🔎 نتيجة البحث</b>
 
 📞 <b>الرقم:</b>
-<code>{phone_source.get("phone")}</code>
+<code>{search_result["phone"]}</code>
 
 🌍 <b>الدولة:</b>
-{phone_source.get("country")}
+{search_result["country"]}
 
 📱 <b>نوع الرقم:</b>
-{phone_source.get("type")}
+{search_result["type"]}
 
 📡 <b>شركة الاتصالات:</b>
-{phone_source.get("carrier")}
+{search_result["carrier"]}
 
 🔢 <b>الصيغة الدولية:</b>
-<code>{phone_source.get("international")}</code>
+<code>{search_result["international"]}</code>
 
-✅ <b>حالة الرقم:</b>
-{phone_source.get("status")}
+<b>{valid_status}</b>
 
 ━━━━━━━━━━━━━━
 
 👤 <b>الاسم في Numberbook:</b>
-<b>{name}</b>
+{search_result["name"]}
 
-{database_status}
+{numberbook_status}
+"""
+
+    # -----------------------------------------------------
+    # Veriphone
+    # -----------------------------------------------------
+
+    if search_result["veriphone_ok"]:
+
+        text += """
+
+━━━━━━━━━━━━━━
+
+🌐 <b>Veriphone</b>
+
+"""
+
+        if search_result["veriphone_country"]:
+
+            text += (
+                f"🌍 الدولة: "
+                f"{search_result['veriphone_country']}\n"
+            )
+
+        if search_result["veriphone_type"]:
+
+            text += (
+                f"📱 النوع: "
+                f"{search_result['veriphone_type']}\n"
+            )
+
+        if search_result["veriphone_carrier"]:
+
+            text += (
+                f"📡 الشركة: "
+                f"{search_result['veriphone_carrier']}\n"
+            )
+
+        if search_result["veriphone_valid"] is not None:
+
+            external_valid = (
+                "✅ صالح"
+                if search_result["veriphone_valid"]
+                else
+                "❌ غير صالح"
+            )
+
+            text += (
+                f"🔍 التحقق الخارجي: "
+                f"{external_valid}\n"
+            )
+
+    # -----------------------------------------------------
+    # مصادر المعلومات
+    # -----------------------------------------------------
+
+    text += """
 
 ━━━━━━━━━━━━━━
 
@@ -505,6 +708,21 @@ def process_search(message):
 📱 Phone Engine
 👤 Numberbook
 """
+
+    if search_result["veriphone_ok"]:
+
+        text += "🌐 Veriphone\n"
+
+    else:
+
+        text += (
+            "🌐 Veriphone: "
+            "غير متاح حاليًا\n"
+        )
+
+    # -----------------------------------------------------
+    # إرسال النتيجة
+    # -----------------------------------------------------
 
     bot.send_message(
         message.chat.id,
@@ -525,7 +743,7 @@ def process_info(message):
 
         bot.send_message(
             message.chat.id,
-            "❌ أرسل رقم هاتف فقط.",
+            "❌ أرسل رقم هاتف صحيح.",
             reply_markup=main_keyboard()
         )
 
@@ -540,87 +758,164 @@ def process_info(message):
 
         bot.send_message(
             message.chat.id,
-            """
-❌ الرقم غير صالح أو غير مفهوم.
-
-مثال:
-
-<code>+967771234567</code>
-""",
+            "❌ الرقم غير صالح أو غير مفهوم.",
             reply_markup=main_keyboard()
         )
 
         return
 
-    data = collect_phone_data(
-        result["e164"],
-        default_region="YE"
-    )
+    if not result["possible"]:
 
-    phone_source = None
-    numberbook_source = None
-
-    for source in data.get("sources", []):
-
-        if source.get("source") == "Phone Engine":
-
-            phone_source = source
-
-        elif source.get("source") == "Numberbook":
-
-            numberbook_source = source
-
-    if not phone_source:
-
-        phone_source = result
-
-    if numberbook_source and numberbook_source.get("found"):
-
-        registered_name = (
-            numberbook_source.get("name")
-            or "غير معروف"
+        bot.send_message(
+            message.chat.id,
+            "❌ الرقم غير محتمل وفق نظام الترقيم.",
+            reply_markup=main_keyboard()
         )
 
-    else:
+        return
 
-        registered_name = "غير مسجل"
+    # -----------------------------------------------------
+    # Data Sources
+    # -----------------------------------------------------
+
+    try:
+
+        search_result = build_search_result(
+            result["e164"]
+        )
+
+    except Exception as error:
+
+        print(
+            f"❌ Data Sources Error: {error}"
+        )
+
+        search_result = None
+
+    # -----------------------------------------------------
+    # إذا تعذر المصدر الجديد
+    # -----------------------------------------------------
+
+    if not search_result:
+
+        valid = (
+            "✅ صالح"
+            if result["valid"]
+            else
+            "❌ غير صالح"
+        )
+
+        possible = (
+            "✅ محتمل"
+            if result["possible"]
+            else
+            "❌ غير محتمل"
+        )
+
+        text = f"""
+<b>📱 معلومات الرقم</b>
+
+📞 الرقم:
+<code>{result["e164"]}</code>
+
+🌍 الدولة:
+<b>{result["country"]}</b>
+
+📍 المنطقة:
+<b>{result["region"]}</b>
+
+📱 نوع الرقم:
+<b>{result["type"]}</b>
+
+📡 شركة الاتصالات:
+<b>{result["carrier"]}</b>
+
+🔢 الصيغة الدولية:
+<code>{result["international"]}</code>
+
+━━━━━━━━━━━━━━
+
+🔍 التحقق:
+{valid}
+
+📐 إمكانية الرقم:
+{possible}
+
+📚 <b>المصدر:</b>
+📱 Phone Engine
+"""
+
+        bot.send_message(
+            message.chat.id,
+            text,
+            reply_markup=main_keyboard()
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # النتيجة
+    # -----------------------------------------------------
+
+    valid = (
+        "✅ صالح"
+        if search_result["valid"]
+        else
+        "❌ غير صالح"
+    )
 
     text = f"""
 <b>📱 معلومات الرقم</b>
 
-📞 <b>الرقم:</b>
-<code>{phone_source.get("phone", result["e164"])}</code>
+📞 الرقم:
+<code>{search_result["phone"]}</code>
 
-🌍 <b>الدولة:</b>
-{phone_source.get("country", result["country"])}
+🌍 الدولة:
+<b>{search_result["country"]}</b>
 
-📍 <b>رمز المنطقة:</b>
-{phone_source.get("region", result["region"])}
+📱 نوع الرقم:
+<b>{search_result["type"]}</b>
 
-📱 <b>نوع الرقم:</b>
-{phone_source.get("type", result["type"])}
+📡 شركة الاتصالات:
+<b>{search_result["carrier"]}</b>
 
-📡 <b>شركة الاتصالات:</b>
-{phone_source.get("carrier", result["carrier"])}
-
-🔢 <b>الصيغة الدولية:</b>
-<code>{phone_source.get("international", result["international"])}</code>
+🔢 الصيغة الدولية:
+<code>{search_result["international"]}</code>
 
 ━━━━━━━━━━━━━━
 
-🔍 <b>الحالة:</b>
-{phone_source.get("status", "غير متوفر")}
+🔍 التحقق:
+{valid}
 
-📐 <b>إمكانية الرقم:</b>
+👤 الاسم في Numberbook:
+<b>{search_result["name"]}</b>
+"""
+
+    if search_result["veriphone_ok"]:
+
+        text += f"""
+
+🌐 <b>Veriphone</b>
+
+📱 النوع:
+{search_result["veriphone_type"] or "غير متوفر"}
+
+📡 الشركة:
+{search_result["veriphone_carrier"] or "غير متوفر"}
+
+🔍 التحقق الخارجي:
 {
-    "✅ محتمل"
-    if result["possible"]
+    "✅ صالح"
+    if search_result["veriphone_valid"]
     else
-    "❌ غير محتمل"
+    "❌ غير صالح"
+    if search_result["veriphone_valid"] is not None
+    else
+    "غير متوفر"
 }
+"""
 
-👤 <b>الاسم في Numberbook:</b>
-<b>{registered_name}</b>
+    text += """
 
 ━━━━━━━━━━━━━━
 
@@ -629,6 +924,14 @@ def process_info(message):
 📱 Phone Engine
 👤 Numberbook
 """
+
+    if search_result["veriphone_ok"]:
+
+        text += "🌐 Veriphone"
+
+    else:
+
+        text += "🌐 Veriphone: غير متاح"
 
     bot.send_message(
         message.chat.id,
@@ -644,16 +947,6 @@ def process_info(message):
 def process_add_phone(message):
 
     register_user(message)
-
-    if not message.text:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ أرسل رقم هاتف فقط.",
-            reply_markup=main_keyboard()
-        )
-
-        return
 
     result = analyze_phone(
         message.text,
@@ -671,8 +964,6 @@ def process_add_phone(message):
         return
 
     phone = result["e164"]
-
-    from database import find_number
 
     existing = find_number(phone)
 
@@ -708,10 +999,14 @@ def process_add_phone(message):
 
 
 # =========================================================
-# 💾 حفظ الرقم
+# حفظ الرقم
 # =========================================================
 
-def save_number(message, phone, country):
+def save_number(
+    message,
+    phone,
+    country
+):
 
     register_user(message)
 
@@ -719,7 +1014,7 @@ def save_number(message, phone, country):
 
         bot.send_message(
             message.chat.id,
-            "❌ أرسل اسمًا صحيحًا.",
+            "❌ الاسم غير صالح.",
             reply_markup=main_keyboard()
         )
 
@@ -751,13 +1046,13 @@ def save_number(message, phone, country):
             f"""
 <b>✅ تم تسجيل الرقم</b>
 
-📞 <b>الرقم:</b>
+📞 الرقم:
 <code>{phone}</code>
 
-👤 <b>الاسم:</b>
+👤 الاسم:
 <b>{name}</b>
 
-🌍 <b>الدولة:</b>
+🌍 الدولة:
 <b>{country}</b>
 
 يمكنك حذف الرقم لاحقًا من زر 🗑 حذف رقمي.
@@ -781,16 +1076,6 @@ def save_number(message, phone, country):
 def process_delete(message):
 
     register_user(message)
-
-    if not message.text:
-
-        bot.send_message(
-            message.chat.id,
-            "❌ أرسل رقم هاتف فقط.",
-            reply_markup=main_keyboard()
-        )
-
-        return
 
     result = analyze_phone(
         message.text,
@@ -819,7 +1104,7 @@ def process_delete(message):
             f"""
 <b>✅ تم حذف الرقم</b>
 
-📞 <code>{result["e164"]}</code>
+<code>{result["e164"]}</code>
 """,
             reply_markup=main_keyboard()
         )
@@ -838,7 +1123,7 @@ def process_delete(message):
 
 
 # =========================================================
-# 💬 الرسائل العادية
+# الرسائل العادية
 # =========================================================
 
 @bot.message_handler(func=lambda message: True)
@@ -847,14 +1132,6 @@ def handle_message(message):
     register_user(message)
 
     if not message.text:
-
-        bot.send_message(
-            message.chat.id,
-            """
-❓ أرسل رقم هاتف أو استخدم /start.
-""",
-            reply_markup=main_keyboard()
-        )
 
         return
 
@@ -885,19 +1162,20 @@ def handle_message(message):
 
 
 # =========================================================
-# 🚀 التشغيل
+# التشغيل
 # =========================================================
 
 if __name__ == "__main__":
 
-    print("=" * 50)
+    print("=" * 60)
     print(f"📞 {BOT_NAME}")
     print(f"🚀 Version: {BOT_VERSION}")
     print("📱 Phone Engine: ACTIVE")
-    print("👤 Numberbook Source: ACTIVE")
+    print("👤 Numberbook: ACTIVE")
+    print("🌐 Veriphone: CONNECTED")
     print("🔎 Data Sources Engine: ACTIVE")
     print("🤖 Bot is running...")
-    print("=" * 50)
+    print("=" * 60)
 
     bot.infinity_polling(
         skip_pending=True,
