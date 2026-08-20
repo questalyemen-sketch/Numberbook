@@ -107,6 +107,8 @@ def start(message):
 🌍 تحليل الدولة
 📱 نوع الرقم
 📡 شركة الاتصالات عند توفرها
+🔢 الصيغة الدولية
+✅ التحقق من الرقم
 ➕ تسجيل رقمك
 🗑 حذف رقمك
 📊 إحصائيات
@@ -137,7 +139,7 @@ def help_command(message):
 
 🔎 <b>بحث عن رقم</b>
 
-أرسل الرقم بصيغة دولية:
+أرسل رقم الهاتف بصيغة دولية:
 
 <code>+967771234567</code>
 
@@ -145,11 +147,13 @@ def help_command(message):
 
 يعرض:
 
+📞 الرقم
 🌍 الدولة
+📍 المنطقة
 📱 نوع الرقم
-📡 شركة الاتصالات
-✅ صحة الرقم
+📡 شركة الاتصالات عند توفرها
 🔢 الصيغة الدولية
+✅ حالة الرقم
 
 ➕ <b>إضافة رقمي</b>
 
@@ -313,17 +317,31 @@ def callback_handler(call):
 
 
 # =========================================================
-# البحث عن رقم
+# 🔎 البحث عن رقم
 # =========================================================
 
 def process_search(message):
 
     register_user(message)
 
+    if not message.text:
+
+        bot.send_message(
+            message.chat.id,
+            "❌ أرسل رقم هاتف فقط.",
+            reply_markup=main_keyboard()
+        )
+
+        return
+
     result = analyze_phone(
         message.text,
         default_region="YE"
     )
+
+    # ---------------------------------------
+    # فشل التحليل
+    # ---------------------------------------
 
     if not result:
 
@@ -343,69 +361,95 @@ def process_search(message):
 
         return
 
+    # ---------------------------------------
+    # الرقم غير محتمل
+    # ---------------------------------------
+
     if not result["possible"]:
 
         bot.send_message(
             message.chat.id,
-            "❌ الرقم غير محتمل وفق نظام الترقيم.",
+            """
+❌ الرقم غير محتمل وفق نظام الترقيم.
+
+تحقق من الرقم وحاول مرة أخرى.
+""",
             reply_markup=main_keyboard()
         )
 
         return
 
+    # ---------------------------------------
+    # الرقم الموحد
+    # ---------------------------------------
+
     phone = result["e164"]
+
+    # ---------------------------------------
+    # تسجيل عملية البحث
+    # ---------------------------------------
 
     add_search(
         message.from_user.id,
         phone
     )
 
+    # ---------------------------------------
+    # البحث داخل Numberbook
+    # ---------------------------------------
+
     database_result = find_number(phone)
 
-    # اسم من قاعدة Numberbook
     if database_result:
 
         name = database_result[1]
 
-        database_status = "✅ موجود في Numberbook"
+        database_status = "✅ الرقم موجود في Numberbook"
 
     else:
 
         name = "غير مسجل"
 
-        database_status = "❌ غير موجود في Numberbook"
+        database_status = "❌ الرقم غير موجود في Numberbook"
 
-    valid_status = (
-        "✅ رقم صالح"
-        if result["valid"]
-        else
-        "⚠️ الرقم غير صالح"
+    # ---------------------------------------
+    # حالة الرقم
+    # ---------------------------------------
+
+    status = result.get(
+        "status",
+        "غير متوفر"
     )
 
-    text = f"""
-<b>🔎 نتيجة تحليل الرقم</b>
+    # ---------------------------------------
+    # بناء النتيجة
+    # ---------------------------------------
 
-📞 <b>الرقم</b>
+    text = f"""
+<b>🔎 نتيجة البحث</b>
+
+📞 <b>الرقم:</b>
 <code>{result["e164"]}</code>
 
-🌍 <b>الدولة</b>
+🌍 <b>الدولة:</b>
 {result["country"]}
 
-📱 <b>النوع</b>
+📱 <b>نوع الرقم:</b>
 {result["type"]}
 
-📡 <b>شركة الاتصالات</b>
+📡 <b>شركة الاتصالات:</b>
 {result["carrier"]}
 
-🔢 <b>الصيغة الدولية</b>
+🔢 <b>الصيغة الدولية:</b>
 <code>{result["international"]}</code>
 
-{valid_status}
+✅ <b>حالة الرقم:</b>
+{status}
 
 ━━━━━━━━━━━━━━
 
-👤 <b>الاسم في Numberbook</b>
-{name}
+👤 <b>الاسم في Numberbook:</b>
+<b>{name}</b>
 
 {database_status}
 """
@@ -418,12 +462,22 @@ def process_search(message):
 
 
 # =========================================================
-# معلومات الرقم
+# 📱 معلومات الرقم
 # =========================================================
 
 def process_info(message):
 
     register_user(message)
+
+    if not message.text:
+
+        bot.send_message(
+            message.chat.id,
+            "❌ أرسل رقم هاتف فقط.",
+            reply_markup=main_keyboard()
+        )
+
+        return
 
     result = analyze_phone(
         message.text,
@@ -434,13 +488,24 @@ def process_info(message):
 
         bot.send_message(
             message.chat.id,
-            "❌ الرقم غير صالح أو غير مفهوم.",
+            """
+❌ الرقم غير صالح أو غير مفهوم.
+
+مثال:
+
+<code>+967771234567</code>
+""",
             reply_markup=main_keyboard()
         )
 
         return
 
-    valid = "✅ صالح" if result["valid"] else "❌ غير صالح"
+    valid = (
+        "✅ صالح"
+        if result["valid"]
+        else
+        "❌ غير صالح"
+    )
 
     possible = (
         "✅ محتمل"
@@ -464,33 +529,33 @@ def process_info(message):
     text = f"""
 <b>📱 معلومات الرقم</b>
 
-📞 الرقم:
+📞 <b>الرقم:</b>
 <code>{result["e164"]}</code>
 
-🌍 الدولة:
-<b>{result["country"]}</b>
+🌍 <b>الدولة:</b>
+{result["country"]}
 
-📍 المنطقة:
-<b>{result["region"]}</b>
+📍 <b>رمز المنطقة:</b>
+{result["region"]}
 
-📱 نوع الرقم:
-<b>{result["type"]}</b>
+📱 <b>نوع الرقم:</b>
+{result["type"]}
 
-📡 شركة الاتصالات:
-<b>{result["carrier"]}</b>
+📡 <b>شركة الاتصالات:</b>
+{result["carrier"]}
 
-🔢 الصيغة الدولية:
+🔢 <b>الصيغة الدولية:</b>
 <code>{result["international"]}</code>
 
 ━━━━━━━━━━━━━━
 
-🔍 التحقق:
+🔍 <b>التحقق:</b>
 {valid}
 
-📐 إمكانية الرقم:
+📐 <b>إمكانية الرقم:</b>
 {possible}
 
-👤 الاسم في Numberbook:
+👤 <b>الاسم في Numberbook:</b>
 <b>{registered_name}</b>
 """
 
@@ -502,12 +567,22 @@ def process_info(message):
 
 
 # =========================================================
-# إضافة رقم
+# ➕ إضافة رقم
 # =========================================================
 
 def process_add_phone(message):
 
     register_user(message)
+
+    if not message.text:
+
+        bot.send_message(
+            message.chat.id,
+            "❌ أرسل رقم هاتف فقط.",
+            reply_markup=main_keyboard()
+        )
+
+        return
 
     result = analyze_phone(
         message.text,
@@ -551,17 +626,31 @@ def process_add_phone(message):
 
     bot.register_next_step_handler(
         msg,
-        lambda m: save_number(m, phone, result["country"])
+        lambda m: save_number(
+            m,
+            phone,
+            result["country"]
+        )
     )
 
 
 # =========================================================
-# حفظ الرقم
+# 💾 حفظ الرقم
 # =========================================================
 
 def save_number(message, phone, country):
 
     register_user(message)
+
+    if not message.text:
+
+        bot.send_message(
+            message.chat.id,
+            "❌ أرسل اسمًا صحيحًا.",
+            reply_markup=main_keyboard()
+        )
+
+        return
 
     name = message.text.strip()
 
@@ -589,13 +678,13 @@ def save_number(message, phone, country):
             f"""
 <b>✅ تم تسجيل الرقم</b>
 
-📞 الرقم:
+📞 <b>الرقم:</b>
 <code>{phone}</code>
 
-👤 الاسم:
+👤 <b>الاسم:</b>
 <b>{name}</b>
 
-🌍 الدولة:
+🌍 <b>الدولة:</b>
 <b>{country}</b>
 
 يمكنك حذف الرقم لاحقًا من زر 🗑 حذف رقمي.
@@ -613,12 +702,22 @@ def save_number(message, phone, country):
 
 
 # =========================================================
-# حذف الرقم
+# 🗑 حذف الرقم
 # =========================================================
 
 def process_delete(message):
 
     register_user(message)
+
+    if not message.text:
+
+        bot.send_message(
+            message.chat.id,
+            "❌ أرسل رقم هاتف فقط.",
+            reply_markup=main_keyboard()
+        )
+
+        return
 
     result = analyze_phone(
         message.text,
@@ -647,7 +746,7 @@ def process_delete(message):
             f"""
 <b>✅ تم حذف الرقم</b>
 
-<code>{result["e164"]}</code>
+📞 <code>{result["e164"]}</code>
 """,
             reply_markup=main_keyboard()
         )
@@ -666,13 +765,25 @@ def process_delete(message):
 
 
 # =========================================================
-# الرسائل العادية
+# 💬 الرسائل العادية
 # =========================================================
 
 @bot.message_handler(func=lambda message: True)
 def handle_message(message):
 
     register_user(message)
+
+    if not message.text:
+
+        bot.send_message(
+            message.chat.id,
+            """
+❓ أرسل رقم هاتف أو استخدم /start.
+""",
+            reply_markup=main_keyboard()
+        )
+
+        return
 
     result = analyze_phone(
         message.text,
@@ -701,7 +812,7 @@ def handle_message(message):
 
 
 # =========================================================
-# التشغيل
+# 🚀 التشغيل
 # =========================================================
 
 if __name__ == "__main__":
@@ -710,6 +821,7 @@ if __name__ == "__main__":
     print(f"📞 {BOT_NAME}")
     print(f"🚀 Version: {BOT_VERSION}")
     print("📱 Phone Engine: ACTIVE")
+    print("🔎 Numberbook Search: ACTIVE")
     print("🤖 Bot is running...")
     print("=" * 50)
 
