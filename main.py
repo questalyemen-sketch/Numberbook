@@ -7,7 +7,6 @@ from database import (
     init_database,
     add_user,
     add_number,
-    find_number,
     add_search,
     count_numbers,
     count_searches,
@@ -16,6 +15,7 @@ from database import (
 )
 
 from phone_utils import analyze_phone
+from data_sources import collect_phone_data
 
 
 # =========================================================
@@ -106,9 +106,10 @@ def start(message):
 🔎 محرك أرقام متطور
 🌍 تحليل الدولة
 📱 نوع الرقم
-📡 شركة الاتصالات عند توفرها
+📡 شركة الاتصالات
 🔢 الصيغة الدولية
 ✅ التحقق من الرقم
+👤 البحث في Numberbook
 ➕ تسجيل رقمك
 🗑 حذف رقمك
 📊 إحصائيات
@@ -139,7 +140,7 @@ def help_command(message):
 
 🔎 <b>بحث عن رقم</b>
 
-أرسل رقم الهاتف بصيغة دولية:
+أرسل الرقم بصيغة دولية:
 
 <code>+967771234567</code>
 
@@ -151,9 +152,10 @@ def help_command(message):
 🌍 الدولة
 📍 المنطقة
 📱 نوع الرقم
-📡 شركة الاتصالات عند توفرها
+📡 شركة الاتصالات
 🔢 الصيغة الدولية
 ✅ حالة الرقم
+👤 بيانات Numberbook عند توفرها
 
 ➕ <b>إضافة رقمي</b>
 
@@ -334,14 +336,14 @@ def process_search(message):
 
         return
 
+    # -----------------------------------------------------
+    # التحليل الأولي
+    # -----------------------------------------------------
+
     result = analyze_phone(
         message.text,
         default_region="YE"
     )
-
-    # ---------------------------------------
-    # فشل التحليل
-    # ---------------------------------------
 
     if not result:
 
@@ -361,10 +363,6 @@ def process_search(message):
 
         return
 
-    # ---------------------------------------
-    # الرقم غير محتمل
-    # ---------------------------------------
-
     if not result["possible"]:
 
         bot.send_message(
@@ -379,72 +377,119 @@ def process_search(message):
 
         return
 
-    # ---------------------------------------
-    # الرقم الموحد
-    # ---------------------------------------
-
     phone = result["e164"]
 
-    # ---------------------------------------
-    # تسجيل عملية البحث
-    # ---------------------------------------
+    # -----------------------------------------------------
+    # تسجيل البحث
+    # -----------------------------------------------------
 
     add_search(
         message.from_user.id,
         phone
     )
 
-    # ---------------------------------------
-    # البحث داخل Numberbook
-    # ---------------------------------------
+    # -----------------------------------------------------
+    # 🔎 استدعاء محرك مصادر البيانات
+    # -----------------------------------------------------
 
-    database_result = find_number(phone)
+    data = collect_phone_data(
+        phone,
+        default_region="YE"
+    )
 
-    if database_result:
+    # -----------------------------------------------------
+    # استخراج Phone Engine
+    # -----------------------------------------------------
 
-        name = database_result[1]
+    phone_source = None
 
-        database_status = "✅ الرقم موجود في Numberbook"
+    numberbook_source = None
+
+    for source in data.get("sources", []):
+
+        if source.get("source") == "Phone Engine":
+
+            phone_source = source
+
+        elif source.get("source") == "Numberbook":
+
+            numberbook_source = source
+
+    # -----------------------------------------------------
+    # حماية في حال تعذر مصدر الهاتف
+    # -----------------------------------------------------
+
+    if not phone_source:
+
+        bot.send_message(
+            message.chat.id,
+            """
+❌ تعذر الحصول على معلومات الرقم حاليًا.
+
+حاول مرة أخرى لاحقًا.
+""",
+            reply_markup=main_keyboard()
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # بيانات Numberbook
+    # -----------------------------------------------------
+
+    if numberbook_source:
+
+        if numberbook_source.get("found"):
+
+            name = (
+                numberbook_source.get("name")
+                or "غير معروف"
+            )
+
+            database_status = (
+                "✅ الرقم موجود في Numberbook"
+            )
+
+        else:
+
+            name = "غير مسجل"
+
+            database_status = (
+                "❌ الرقم غير موجود في Numberbook"
+            )
 
     else:
 
         name = "غير مسجل"
 
-        database_status = "❌ الرقم غير موجود في Numberbook"
+        database_status = (
+            "⚠️ تعذر الوصول إلى مصدر Numberbook"
+        )
 
-    # ---------------------------------------
-    # حالة الرقم
-    # ---------------------------------------
-
-    status = result.get(
-        "status",
-        "غير متوفر"
-    )
-
-    # ---------------------------------------
+    # -----------------------------------------------------
     # بناء النتيجة
-    # ---------------------------------------
+    # -----------------------------------------------------
 
     text = f"""
 <b>🔎 نتيجة البحث</b>
 
 📞 <b>الرقم:</b>
-<code>{result["e164"]}</code>
+<code>{phone_source.get("phone")}</code>
 
 🌍 <b>الدولة:</b>
-{result["country"]}
+{phone_source.get("country")}
 
 📱 <b>نوع الرقم:</b>
-{result["type"]}
+{phone_source.get("type")}
 
 📡 <b>شركة الاتصالات:</b>
-{result["carrier"]}
+{phone_source.get("carrier")}
 
 🔢 <b>الصيغة الدولية:</b>
-<code>{result["international"]}</code>
+<code>{phone_source.get("international")}</code>
 
 ✅ <b>حالة الرقم:</b>
-{status}
+{phone_source.get("status")}
 
 ━━━━━━━━━━━━━━
 
@@ -452,6 +497,13 @@ def process_search(message):
 <b>{name}</b>
 
 {database_status}
+
+━━━━━━━━━━━━━━
+
+📚 <b>مصادر المعلومات:</b>
+
+📱 Phone Engine
+👤 Numberbook
 """
 
     bot.send_message(
@@ -500,27 +552,34 @@ def process_info(message):
 
         return
 
-    valid = (
-        "✅ صالح"
-        if result["valid"]
-        else
-        "❌ غير صالح"
+    data = collect_phone_data(
+        result["e164"],
+        default_region="YE"
     )
 
-    possible = (
-        "✅ محتمل"
-        if result["possible"]
-        else
-        "❌ غير محتمل"
-    )
+    phone_source = None
+    numberbook_source = None
 
-    database_result = find_number(
-        result["e164"]
-    )
+    for source in data.get("sources", []):
 
-    if database_result:
+        if source.get("source") == "Phone Engine":
 
-        registered_name = database_result[1]
+            phone_source = source
+
+        elif source.get("source") == "Numberbook":
+
+            numberbook_source = source
+
+    if not phone_source:
+
+        phone_source = result
+
+    if numberbook_source and numberbook_source.get("found"):
+
+        registered_name = (
+            numberbook_source.get("name")
+            or "غير معروف"
+        )
 
     else:
 
@@ -530,33 +589,45 @@ def process_info(message):
 <b>📱 معلومات الرقم</b>
 
 📞 <b>الرقم:</b>
-<code>{result["e164"]}</code>
+<code>{phone_source.get("phone", result["e164"])}</code>
 
 🌍 <b>الدولة:</b>
-{result["country"]}
+{phone_source.get("country", result["country"])}
 
 📍 <b>رمز المنطقة:</b>
-{result["region"]}
+{phone_source.get("region", result["region"])}
 
 📱 <b>نوع الرقم:</b>
-{result["type"]}
+{phone_source.get("type", result["type"])}
 
 📡 <b>شركة الاتصالات:</b>
-{result["carrier"]}
+{phone_source.get("carrier", result["carrier"])}
 
 🔢 <b>الصيغة الدولية:</b>
-<code>{result["international"]}</code>
+<code>{phone_source.get("international", result["international"])}</code>
 
 ━━━━━━━━━━━━━━
 
-🔍 <b>التحقق:</b>
-{valid}
+🔍 <b>الحالة:</b>
+{phone_source.get("status", "غير متوفر")}
 
 📐 <b>إمكانية الرقم:</b>
-{possible}
+{
+    "✅ محتمل"
+    if result["possible"]
+    else
+    "❌ غير محتمل"
+}
 
 👤 <b>الاسم في Numberbook:</b>
 <b>{registered_name}</b>
+
+━━━━━━━━━━━━━━
+
+📚 <b>مصادر المعلومات:</b>
+
+📱 Phone Engine
+👤 Numberbook
 """
 
     bot.send_message(
@@ -600,6 +671,8 @@ def process_add_phone(message):
         return
 
     phone = result["e164"]
+
+    from database import find_number
 
     existing = find_number(phone)
 
@@ -821,7 +894,8 @@ if __name__ == "__main__":
     print(f"📞 {BOT_NAME}")
     print(f"🚀 Version: {BOT_VERSION}")
     print("📱 Phone Engine: ACTIVE")
-    print("🔎 Numberbook Search: ACTIVE")
+    print("👤 Numberbook Source: ACTIVE")
+    print("🔎 Data Sources Engine: ACTIVE")
     print("🤖 Bot is running...")
     print("=" * 50)
 
