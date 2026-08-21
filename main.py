@@ -302,8 +302,7 @@ def sherlock_selection_text(chat_id):
                     platforms[key]
                 )
 
-        selected_text = "
-".join(
+        selected_text = "\n".join(
             f"• {name}"
             for name in names
         )
@@ -560,11 +559,8 @@ def process_sherlock_username(message):
         # -------------------------------------------------
 
         result_text += (
-            "
-
-"
-            "🌐 <b>المنصات التي تم اختيارها:</b>
-"
+            "\n\n"
+            "🌐 <b>المنصات التي تم اختيارها:</b>\n"
             + html.escape(
                 selected_text
             )
@@ -963,8 +959,7 @@ def process_search(message):
                         ]
                     )
                 )
-                + "
-"
+                + "\n"
             )
 
         if search_result["veriphone_type"]:
@@ -978,8 +973,7 @@ def process_search(message):
                         ]
                     )
                 )
-                + "
-"
+                + "\n"
             )
 
         if search_result["veriphone_carrier"]:
@@ -993,8 +987,7 @@ def process_search(message):
                         ]
                     )
                 )
-                + "
-"
+                + "\n"
             )
 
         if search_result[
@@ -1013,8 +1006,7 @@ def process_search(message):
             text += (
                 "🔍 التحقق الخارجي: "
                 + external_valid
-                + "
-"
+                + "\n"
             )
 
     text += """
@@ -1029,15 +1021,13 @@ def process_search(message):
 
     if search_result["veriphone_ok"]:
 
-        text += "🌐 Veriphone
-"
+        text += "🌐 Veriphone\n"
 
     else:
 
         text += (
             "🌐 Veriphone: "
-            "غير متاح حاليًا
-"
+            "غير متاح حاليًا\n"
         )
 
     bot.send_message(
@@ -1879,77 +1869,6 @@ def handle_message(message):
 """,
         reply_markup=main_keyboard()
     )
-
-
-# =========================================================
-# اختبار بسيط لـ Enrichment
-# =========================================================
-
-@bot.message_handler(commands=["testgithub"])
-def test_github_simple(message):
-    """
-    اختبار بسيط جدًا: /testgithub <username>
-    يعرض معلومات GitHub فقط
-    """
-    args = message.text.split()
-    
-    if len(args) < 2:
-        bot.send_message(
-            message.chat.id,
-            "❌ اكتب: /testgithub <username>
-
-مثال:
-/testgithub torvalds",
-            reply_markup=main_keyboard()
-        )
-        return
-    
-    username = args[1]
-    
-    bot.send_message(
-        message.chat.id,
-        f"🔎 جاري البحث عن <code>{html.escape(username)}</code> في GitHub...",
-        reply_markup=types.ReplyKeyboardRemove()
-    )
-    
-    async def get_github():
-        from platform_enrichment import enrich_account
-        
-        result = await enrich_account("github", username, timeout=8)
-        
-        if result["found"]:
-            text = f"""
-✅ <b>GitHub - تم العثور على الحساب</b>
-
-👤 الاسم: <code>{html.escape(str(result['display_name'] or 'غير متوفر'))}</code>
-
-📝 النبذة: <code>{html.escape(str(result['bio'] or 'لا توجد'))}</code>
-
-👥 المتابعون: <code>{result['followers']}</code>
-
-📊 المشاريع: <code>{result['posts']}</code>
-
-📍 الموقع: <code>{html.escape(str(result['location'] or 'غير متوفر'))}</code>
-
-🔗 <a href="{html.escape(result['url'])}">{html.escape(result['url'])}</a>
-"""
-        else:
-            text = f"""
-❌ <b>GitHub - الحساب غير موجود</b>
-
-Username: <code>{html.escape(username)}</code>
-
-🔗 <a href="{html.escape(result['url'])}">{html.escape(result['url'])}</a>
-"""
-        
-        bot.send_message(
-            message.chat.id,
-            text,
-            reply_markup=main_keyboard(),
-            parse_mode="HTML"
-        )
-    
-    asyncio.run(get_github())
 
 
 # =========================================================
