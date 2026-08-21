@@ -2,16 +2,19 @@
 Sherlock Service
 ================
 
-واجهة ربط Sherlock مع Numberbook Telegram Bot.
-
-يستخدم نسخة Sherlock المثبتة من:
-https://github.com/questalyemen-sketch/sherlock
+واجهة ربط Sherlock مع Numberbook.
 
 الوظائف:
-- البحث عن Username
-- تشغيل البحث في Thread حتى لا يتجمد البوت
-- تنظيف النتائج
-- تنسيق النتائج لتناسب Telegram
+- تنظيف Username
+- البحث باستخدام Sherlock
+- تشغيل البحث في Thread
+- استخراج النتائج المؤكدة
+- تنسيق النتائج لـ Telegram
+- تقسيم الرسائل الطويلة
+
+ملاحظة:
+عدم العثور على حساب لا يعني بالضرورة أن الحساب غير موجود؛
+قد تفشل بعض المواقع أو تحجب طلبات البحث.
 """
 
 import asyncio
@@ -28,12 +31,13 @@ from sherlock_project.notify import QueryNotifyPrint
 # الإعدادات
 # ============================================================
 
-DEFAULT_TIMEOUT = 20
+# مهلة كل موقع
+DEFAULT_TIMEOUT = 10
 
-# الحد الأقصى لاسم المستخدم
+# أقصى طول لاسم المستخدم
 MAX_USERNAME_LENGTH = 50
 
-# الأحرف المسموحة في Username
+# عدد الأحرف المسموحة
 USERNAME_PATTERN = re.compile(
     r"^[A-Za-z0-9._-]{1,50}$"
 )
@@ -48,18 +52,17 @@ def clean_username(username: str) -> str:
     تنظيف والتحقق من Username.
     """
 
-    if not username:
+    if username is None:
         raise ValueError(
             "لم يتم إدخال Username."
         )
 
-    username = username.strip()
+    username = str(username).strip()
 
     # إزالة @
     if username.startswith("@"):
         username = username[1:]
 
-    # إزالة المسافات
     username = username.strip()
 
     if not username:
@@ -89,17 +92,20 @@ def clean_username(username: str) -> str:
 
 def load_sites() -> Dict[str, Any]:
     """
-    تحميل قائمة المواقع التي سيبحث فيها Sherlock.
-
-    يتم استبعاد المواقع المصنفة NSFW.
+    تحميل مواقع Sherlock واستبعاد المواقع المصنفة NSFW.
     """
 
     sites = SitesInformation(
         honor_exclusions=True
     )
 
-    # استبعاد مواقع NSFW
-    sites.remove_nsfw_sites()
+    # لا نريد مواقع NSFW في بوت عام
+    try:
+        sites.remove_nsfw_sites()
+    except Exception as error:
+        print(
+            f"⚠️ تعذر إزالة NSFW sites: {error}"
+        )
 
     return {
         site.name: site.information
@@ -118,15 +124,40 @@ def search_username(
     """
     البحث عن Username باستخدام Sherlock.
 
-    يعيد قائمة بالنتائج التي تم العثور عليها.
+    يعيد النتائج التي أعلن Sherlock أنها CLAIMED.
     """
 
-    username = clean_username(username)
+    username = clean_username(
+        username
+    )
 
+    # حماية timeout
+    try:
+        timeout = int(timeout)
+    except (TypeError, ValueError):
+        timeout = DEFAULT_TIMEOUT
+
+    if timeout < 3:
+        timeout = 3
+
+    if timeout > 30:
+        timeout = 30
+
+    # --------------------------------------------------------
     # تحميل المواقع
+    # --------------------------------------------------------
+
     site_data = load_sites()
 
-    # إنشاء نظام الإشعارات
+    print(
+        f"🔎 Sherlock: searching '{username}' "
+        f"across {len(site_data)} sites..."
+    )
+
+    # --------------------------------------------------------
+    # إشعارات Sherlock
+    # --------------------------------------------------------
+
     query_notify = QueryNotifyPrint(
         result=None,
         verbose=False,
@@ -134,7 +165,10 @@ def search_username(
         browse=False
     )
 
+    # --------------------------------------------------------
     # تشغيل Sherlock
+    # --------------------------------------------------------
+
     results = sherlock(
         username=username,
         site_data=site_data,
@@ -144,15 +178,23 @@ def search_username(
 
     found_results: List[Dict[str, Any]] = []
 
-    # معالجة النتائج
+    # --------------------------------------------------------
+    # تحليل النتائج
+    # --------------------------------------------------------
+
     for site_name, data in results.items():
 
         if not data:
             continue
 
-        status = data.get("status")
+        status = data.get(
+            "status"
+        )
 
+        # ----------------------------------------------------
         # الحساب موجود
+        # ----------------------------------------------------
+
         if status == QueryStatus.CLAIMED:
 
             url = data.get(
@@ -166,19 +208,29 @@ def search_username(
                 "status": "found"
             })
 
-    # ترتيب النتائج أبجديًا
+    # --------------------------------------------------------
+    # ترتيب النتائج
+    # --------------------------------------------------------
+
     found_results.sort(
-        key=lambda item: item.get(
-            "site",
-            ""
+        key=lambda item: str(
+            item.get(
+                "site",
+                ""
+            )
         ).lower()
+    )
+
+    print(
+        f"✅ Sherlock: found "
+        f"{len(found_results)} result(s)"
     )
 
     return found_results
 
 
 # ============================================================
-# البحث Async
+# Async Search
 # ============================================================
 
 async def search_username_async(
@@ -188,8 +240,7 @@ async def search_username_async(
     """
     تشغيل Sherlock في Thread منفصل.
 
-    هذا يمنع Sherlock من تجميد بوت Telegram
-    أثناء فحص المواقع.
+    هذا يمنع البحث من تجميد Telegram Bot.
     """
 
     return await asyncio.to_thread(
@@ -222,6 +273,7 @@ def format_result_item(
     )
 
     if url:
+
         return (
             f"{index}. 🌐 <b>{site}</b>\n"
             f"   {url}"
@@ -233,7 +285,7 @@ def format_result_item(
 
 
 # ============================================================
-# تنسيق جميع النتائج
+# تنسيق النتائج
 # ============================================================
 
 def format_results(
@@ -248,29 +300,41 @@ def format_results(
         username
     )
 
+    # --------------------------------------------------------
     # لا توجد نتائج
+    # --------------------------------------------------------
+
     if not results:
 
         return (
             "🔎 <b>Sherlock OSINT</b>\n\n"
             f"👤 Username: "
             f"<code>{username}</code>\n\n"
-            "❌ <b>لم يتم العثور على نتائج.</b>\n\n"
-            "لم يتم العثور على حسابات مطابقة "
-            "ضمن المواقع التي تم فحصها."
+            "❌ <b>لم يتم العثور على نتائج مؤكدة.</b>\n\n"
+            "قد يعني ذلك عدم وجود تطابق، "
+            "أو أن بعض المواقع لم تسمح بالتحقق."
         )
+
+    # --------------------------------------------------------
+    # بداية الرسالة
+    # --------------------------------------------------------
 
     lines = [
         "🔎 <b>Sherlock OSINT</b>",
         "",
         f"👤 Username: "
         f"<code>{username}</code>",
-        f"✅ النتائج: "
-        f"<b>{len(results)}</b>",
+        "",
+        f"✅ تم العثور على "
+        f"<b>{len(results)}</b> تطابقات:",
         "",
         "━━━━━━━━━━━━━━━━━━",
         ""
     ]
+
+    # --------------------------------------------------------
+    # النتائج
+    # --------------------------------------------------------
 
     for index, result in enumerate(
         results,
@@ -286,19 +350,28 @@ def format_results(
 
         lines.append("")
 
+    # --------------------------------------------------------
+    # التنبيه
+    # --------------------------------------------------------
+
     lines.extend([
         "━━━━━━━━━━━━━━━━━━",
         "",
         "⚠️ <b>تنبيه:</b>",
-        "وجود Username مطابق لا يعني أن "
-        "الحسابات تعود بالضرورة إلى نفس الشخص."
+        "وجود Username مطابق لا يثبت أن "
+        "الحسابات تعود إلى نفس الشخص.",
+        "",
+        "🔎 النتائج هي تطابقات محتملة "
+        "لاسم المستخدم فقط."
     ])
 
-    return "\n".join(lines)
+    return "\n".join(
+        lines
+    )
 
 
 # ============================================================
-# تقسيم رسالة Telegram
+# تقسيم رسائل Telegram
 # ============================================================
 
 def split_message(
@@ -306,42 +379,59 @@ def split_message(
     max_length: int = 4000
 ) -> List[str]:
     """
-    تقسيم النص الطويل إلى أجزاء مناسبة لـTelegram.
+    تقسيم الرسالة الطويلة إلى أجزاء.
     """
+
+    if not text:
+        return []
 
     if len(text) <= max_length:
         return [text]
 
     chunks: List[str] = []
 
-    while len(text) > max_length:
+    remaining = text
 
-        # محاولة التقسيم عند سطر
-        split_at = text.rfind(
+    while len(remaining) > max_length:
+
+        # ----------------------------------------------------
+        # حاول التقسيم عند آخر سطر
+        # ----------------------------------------------------
+
+        split_at = remaining.rfind(
             "\n",
             0,
             max_length
         )
 
+        # إذا لم نجد سطرًا مناسبًا
         if split_at <= 0:
+
             split_at = max_length
 
+        chunk = remaining[
+            :split_at
+        ]
+
         chunks.append(
-            text[:split_at]
+            chunk
         )
 
-        text = text[
+        remaining = remaining[
             split_at:
         ].lstrip("\n")
 
-    if text:
-        chunks.append(text)
+    if remaining:
+
+        chunks.append(
+            remaining
+        )
 
     return chunks
 
 
 # ============================================================
-# دالة موحدة للبحث والتنسيق
+# البحث + التنسيق
 # ============================================================
 
 async def search_and_format(
@@ -349,8 +439,7 @@ async def search_and_format(
     timeout: int = DEFAULT_TIMEOUT
 ) -> str:
     """
-    تنفيذ البحث ثم إرجاع النتيجة
-    جاهزة للإرسال إلى Telegram.
+    تنفيذ البحث ثم تنسيق النتائج.
     """
 
     username = clean_username(
@@ -374,7 +463,7 @@ async def search_and_format(
 
 def get_service_info() -> Dict[str, Any]:
     """
-    معلومات عن خدمة Sherlock.
+    إرجاع معلومات Sherlock Service.
     """
 
     return {
@@ -384,3 +473,39 @@ def get_service_info() -> Dict[str, Any]:
         "nsfw_sites": False,
         "status": "ready"
     }
+
+
+# ============================================================
+# اختبار داخلي اختياري
+# ============================================================
+
+if __name__ == "__main__":
+
+    print(
+        "🕵️ Sherlock Service Test"
+    )
+
+    test_username = "github"
+
+    try:
+
+        result = search_username(
+            test_username
+        )
+
+        print(
+            format_results(
+                test_username,
+                result
+            )
+        )
+
+    except Exception as error:
+
+        print(
+            "❌ Test Error:"
+        )
+
+        print(
+            repr(error)
+        )
