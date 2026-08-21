@@ -1,4 +1,6 @@
 import asyncio
+import html
+
 import telebot
 from telebot import types
 
@@ -23,14 +25,15 @@ from data_sources import (
 )
 
 # =========================================================
-# 🕵️ Sherlock
+# Sherlock
 # =========================================================
 
 from sherlock_service import (
+    clean_username,
     search_username_async,
     format_results,
     split_message,
-    clean_username
+    get_platforms
 )
 
 
@@ -47,12 +50,22 @@ init_database()
 
 
 # =========================================================
+# جلسات Sherlock
+# =========================================================
+
+# chat_id -> قائمة المنصات المختارة
+sherlock_sessions = {}
+
+
+# =========================================================
 # القائمة الرئيسية
 # =========================================================
 
 def main_keyboard():
 
-    keyboard = types.InlineKeyboardMarkup(row_width=2)
+    keyboard = types.InlineKeyboardMarkup(
+        row_width=2
+    )
 
     keyboard.add(
         types.InlineKeyboardButton(
@@ -67,34 +80,30 @@ def main_keyboard():
 
     keyboard.add(
         types.InlineKeyboardButton(
+            "🕵️ Sherlock",
+            callback_data="sherlock"
+        ),
+        types.InlineKeyboardButton(
             "➕ إضافة رقمي",
             callback_data="add"
-        ),
+        )
+    )
+
+    keyboard.add(
         types.InlineKeyboardButton(
             "🗑 حذف رقمي",
             callback_data="delete"
-        )
-    )
-
-    keyboard.add(
+        ),
         types.InlineKeyboardButton(
             "📊 الإحصائيات",
             callback_data="stats"
-        ),
-        types.InlineKeyboardButton(
-            "ℹ️ المساعدة",
-            callback_data="help"
         )
     )
 
-    # =====================================================
-    # 🕵️ Sherlock
-    # =====================================================
-
     keyboard.add(
         types.InlineKeyboardButton(
-            "🕵️ Sherlock",
-            callback_data="sherlock"
+            "ℹ️ المساعدة",
+            callback_data="help"
         )
     )
 
@@ -106,9 +115,6 @@ def main_keyboard():
 # =========================================================
 
 def register_user(message):
-
-    if not message.from_user:
-        return
 
     add_user(
         message.from_user.id,
@@ -127,11 +133,11 @@ def start(message):
     register_user(message)
 
     text = f"""
-<b>📞 {BOT_NAME}</b>
+<b>📞 {html.escape(str(BOT_NAME))}</b>
 
-<b>مرحباً {message.from_user.first_name} 👋</b>
+<b>مرحباً {html.escape(str(message.from_user.first_name or "صديقي"))} 👋</b>
 
-الإصدار: <b>{BOT_VERSION}</b>
+الإصدار: <b>{html.escape(str(BOT_VERSION))}</b>
 
 🔎 محرك أرقام متطور
 🌍 تحليل الدولة
@@ -184,18 +190,19 @@ def help_command(message):
 ✅ صحة الرقم
 🔢 الصيغة الدولية
 
-🌐 يتم استخدام مصادر بيانات خارجية عند توفرها.
-
 🕵️ <b>Sherlock</b>
 
-يبحث عن اسم مستخدم في المواقع والخدمات
-التي يدعمها Sherlock.
+ابحث عن Username في مجموعة من أشهر المنصات.
+
+يمكنك اختيار المنصات التي تريد فحصها قبل بدء البحث.
 
 مثال:
 
-<code>/sherlock username</code>
+<code>github</code>
 
-أو اضغط زر 🕵️ Sherlock.
+أو:
+
+<code>@github</code>
 
 ➕ <b>إضافة رقمي</b>
 
@@ -205,14 +212,147 @@ def help_command(message):
 
 حذف الرقم الذي سجلته بنفسك.
 
-⚠️ يعتمد النظام على البيانات المسموح باستخدامها.
+⚠️ نتائج Sherlock هي تطابقات محتملة لاسم المستخدم
+ولا تثبت أن الحسابات تعود إلى نفس الشخص.
 """,
         reply_markup=main_keyboard()
     )
 
 
 # =========================================================
-# 🕵️ أمر Sherlock
+# Sherlock - لوحة اختيار المنصات
+# =========================================================
+
+def sherlock_keyboard(chat_id):
+
+    platforms = get_platforms()
+
+    selected = sherlock_sessions.get(
+        chat_id,
+        set()
+    )
+
+    keyboard = types.InlineKeyboardMarkup(
+        row_width=2
+    )
+
+    for platform_key, platform_name in platforms.items():
+
+        if platform_key in selected:
+            text = f"✅ {platform_name}"
+        else:
+            text = f"⬜ {platform_name}"
+
+        keyboard.add(
+            types.InlineKeyboardButton(
+                text,
+                callback_data=f"shp:{platform_key}"
+            )
+        )
+
+    keyboard.add(
+        types.InlineKeyboardButton(
+            "✅ اختيار الكل",
+            callback_data="shp_all"
+        ),
+        types.InlineKeyboardButton(
+            "🧹 إلغاء الكل",
+            callback_data="shp_none"
+        )
+    )
+
+    keyboard.add(
+        types.InlineKeyboardButton(
+            "🚀 بدء البحث",
+            callback_data="shp_start"
+        )
+    )
+
+    keyboard.add(
+        types.InlineKeyboardButton(
+            "❌ إلغاء",
+            callback_data="shp_cancel"
+        )
+    )
+
+    return keyboard
+
+
+# =========================================================
+# Sherlock - رسالة اختيار المنصات
+# =========================================================
+
+def sherlock_selection_text(chat_id):
+
+    selected = sherlock_sessions.get(
+        chat_id,
+        set()
+    )
+
+    platforms = get_platforms()
+
+    if selected:
+
+        names = []
+
+        for key in selected:
+
+            if key in platforms:
+                names.append(
+                    platforms[key]
+                )
+
+        selected_text = "\n".join(
+            f"• {name}"
+            for name in names
+        )
+
+    else:
+
+        selected_text = (
+            "لا توجد منصات محددة حاليًا."
+        )
+
+    return f"""
+🕵️ <b>Sherlock Username Search</b>
+
+اختر المنصات التي تريد البحث فيها:
+
+<b>المنصات المحددة:</b>
+
+{selected_text}
+
+━━━━━━━━━━━━━━━━━━
+
+بعد اختيار المنصات اضغط:
+
+🚀 <b>بدء البحث</b>
+"""
+
+
+# =========================================================
+# بدء Sherlock
+# =========================================================
+
+def start_sherlock_selection(message):
+
+    chat_id = message.chat.id
+
+    sherlock_sessions[chat_id] = set()
+
+    bot.send_message(
+        chat_id,
+        sherlock_selection_text(
+            chat_id
+        ),
+        reply_markup=sherlock_keyboard(
+            chat_id
+        )
+    )
+
+
+# =========================================================
+# /sherlock
 # =========================================================
 
 @bot.message_handler(commands=["sherlock"])
@@ -220,36 +360,52 @@ def sherlock_command(message):
 
     register_user(message)
 
-    # -----------------------------------------------------
-    # إذا كان الأمر بالشكل:
-    # /sherlock username
-    # -----------------------------------------------------
-
-    parts = message.text.split(
-        maxsplit=1
+    start_sherlock_selection(
+        message
     )
 
-    if len(parts) > 1:
 
-        username = parts[1].strip()
+# =========================================================
+# طلب Username بعد اختيار المنصات
+# =========================================================
 
-        process_sherlock_username(
-            message,
-            username
+def ask_sherlock_username(message):
+
+    chat_id = message.chat.id
+
+    selected = sherlock_sessions.get(
+        chat_id,
+        set()
+    )
+
+    if not selected:
+
+        bot.send_message(
+            chat_id,
+            """
+❌ لم تختر أي منصة.
+
+اختر منصة واحدة على الأقل لبدء البحث.
+""",
+            reply_markup=sherlock_keyboard(
+                chat_id
+            )
         )
 
         return
 
-    # -----------------------------------------------------
-    # إذا لم يكتب Username
-    # -----------------------------------------------------
+    selected_count = len(
+        selected
+    )
 
-    msg = bot.send_message(
-        message.chat.id,
-        """
-<b>🕵️ Sherlock Username Search</b>
+    bot.send_message(
+        chat_id,
+        f"""
+🕵️ <b>Sherlock Username Search</b>
 
-أرسل اسم المستخدم الذي تريد البحث عنه.
+تم اختيار <b>{selected_count}</b> منصة.
+
+أرسل الآن Username الذي تريد البحث عنه.
 
 مثال:
 
@@ -259,418 +415,238 @@ def sherlock_command(message):
 
 <code>@github</code>
 
-⏳ بعد الإرسال سيبدأ البحث.
-"""
+⏳ سيتم فحص المنصات التي اخترتها فقط.
+""",
+        reply_markup=types.ReplyKeyboardRemove()
     )
 
     bot.register_next_step_handler(
-        msg,
-        process_sherlock
+        bot.send_message(
+            chat_id,
+            "👤 أرسل Username الآن:"
+        ),
+        process_sherlock_username
     )
 
 
 # =========================================================
-# 🕵️ استقبال Username من المستخدم
+# تنفيذ Sherlock
 # =========================================================
 
-def process_sherlock(message):
+def process_sherlock_username(message):
 
     register_user(message)
+
+    chat_id = message.chat.id
 
     if not message.text:
 
         bot.send_message(
-            message.chat.id,
-            "❌ أرسل Username صحيحًا.",
+            chat_id,
+            "❌ أرسل Username نصيًا.",
             reply_markup=main_keyboard()
         )
 
         return
 
-    process_sherlock_username(
-        message,
-        message.text.strip()
-    )
-
-
-# =========================================================
-# 🔎 تنفيذ بحث Sherlock
-# =========================================================
-
-def process_sherlock_username(
-    message,
-    username
-):
-
-    register_user(message)
-
-    # -----------------------------------------------------
-    # تنظيف Username
-    # -----------------------------------------------------
-
     try:
 
         username = clean_username(
-            username
+            message.text
         )
 
     except ValueError as error:
 
         bot.send_message(
-            message.chat.id,
+            chat_id,
             f"""
 ❌ <b>Username غير صالح</b>
 
-{error}
+{html.escape(str(error))}
+
+مثال صحيح:
+
+<code>github</code>
 """,
             reply_markup=main_keyboard()
         )
 
         return
+
+    selected = sherlock_sessions.get(
+        chat_id,
+        set()
+    )
+
+    if not selected:
+
+        bot.send_message(
+            chat_id,
+            "❌ لم يتم اختيار أي منصة.",
+            reply_markup=main_keyboard()
+        )
+
+        return
+
+    # -----------------------------------------------------
+    # أسماء المنصات
+    # -----------------------------------------------------
+
+    platforms = get_platforms()
+
+    selected_names = []
+
+    for key in selected:
+
+        if key in platforms:
+
+            selected_names.append(
+                platforms[key]
+            )
 
     # -----------------------------------------------------
     # رسالة الانتظار
     # -----------------------------------------------------
 
+    selected_text = ", ".join(
+        selected_names
+    )
+
     waiting_message = bot.send_message(
-        message.chat.id,
+        chat_id,
         f"""
 🕵️ <b>Sherlock</b>
 
 👤 Username:
-<code>{username}</code>
+<code>{html.escape(username)}</code>
 
-🔎 جارٍ البحث...
+🌐 المنصات:
+{html.escape(selected_text)}
 
-⏳ يتم فحص المواقع المتاحة.
-قد يستغرق البحث بعض الوقت.
+🔎 <b>جارٍ البحث...</b>
+
+⏳ يتم فحص المنصات المحددة فقط.
 """
     )
 
     try:
 
-        # =================================================
-        # تشغيل Sherlock بدون تجميد البوت
-        # =================================================
+        # -------------------------------------------------
+        # تشغيل Sherlock
+        # -------------------------------------------------
 
         results = asyncio.run(
             search_username_async(
                 username,
-                timeout=20
+                timeout=8,
+                selected_platforms=list(
+                    selected
+                )
             )
         )
 
-        # =================================================
-        # تحويل النتائج إلى رسالة
-        # =================================================
+        # -------------------------------------------------
+        # بناء النتيجة
+        # -------------------------------------------------
 
-        text = format_results(
+        result_text = format_results(
             username,
             results
         )
 
-        # =================================================
+        # -------------------------------------------------
+        # إضافة معلومات البحث
+        # -------------------------------------------------
+
+        result_text += (
+            "\n\n"
+            "🌐 <b>المنصات التي تم اختيارها:</b>\n"
+            + html.escape(
+                selected_text
+            )
+        )
+
+        # -------------------------------------------------
         # حذف رسالة الانتظار
-        # =================================================
+        # -------------------------------------------------
 
         try:
 
             bot.delete_message(
-                message.chat.id,
+                chat_id,
                 waiting_message.message_id
             )
 
         except Exception:
+
             pass
 
-        # =================================================
+        # -------------------------------------------------
         # تقسيم الرسالة إذا كانت طويلة
-        # =================================================
+        # -------------------------------------------------
 
         chunks = split_message(
-            text,
-            max_length=4000
+            result_text
         )
 
-        for index, chunk in enumerate(
-            chunks
-        ):
-
-            is_last = (
-                index == len(chunks) - 1
-            )
+        for chunk in chunks:
 
             bot.send_message(
-                message.chat.id,
-                chunk,
-                reply_markup=(
-                    main_keyboard()
-                    if is_last
-                    else None
-                )
+                chat_id,
+                chunk
             )
 
-    # =====================================================
-    # Username غير صالح
-    # =====================================================
-
-    except ValueError as error:
-
-        try:
-
-            bot.delete_message(
-                message.chat.id,
-                waiting_message.message_id
-            )
-
-        except Exception:
-            pass
+        # -------------------------------------------------
+        # زر العودة
+        # -------------------------------------------------
 
         bot.send_message(
-            message.chat.id,
-            f"""
-❌ <b>Username غير صالح</b>
-
-{error}
-""",
+            chat_id,
+            "اختر خدمة أخرى 👇",
             reply_markup=main_keyboard()
         )
-
-    # =====================================================
-    # خطأ عام
-    # =====================================================
 
     except Exception as error:
 
         print(
-            "❌ Sherlock Error:"
-        )
-
-        print(
+            "❌ Sherlock Error:",
             repr(error)
         )
 
         try:
 
             bot.delete_message(
-                message.chat.id,
+                chat_id,
                 waiting_message.message_id
             )
 
         except Exception:
+
             pass
 
         bot.send_message(
-            message.chat.id,
-            """
-⚠️ <b>حدث خطأ أثناء تشغيل Sherlock.</b>
+            chat_id,
+            f"""
+❌ <b>حدث خطأ أثناء تشغيل Sherlock</b>
 
-قد يكون السبب:
+لم يتمكن محرك البحث من إكمال العملية.
 
-• مشكلة في تشغيل Sherlock
-• مشكلة في أحد مصادر البحث
-• انتهاء مهلة الاتصال
-• تعذر الوصول لبعض المواقع
-• مشكلة في تثبيت إحدى المكتبات
+يمكنك المحاولة مرة أخرى.
 
-📋 راجع Railway Logs لمعرفة الخطأ بالتحديد.
+<code>{html.escape(str(error)[:500])}</code>
 """,
             reply_markup=main_keyboard()
         )
 
+    finally:
 
-# =========================================================
-# الأزرار
-# =========================================================
+        # -------------------------------------------------
+        # تنظيف جلسة Sherlock
+        # -------------------------------------------------
 
-@bot.callback_query_handler(func=lambda call: True)
-def callback_handler(call):
-
-    chat_id = call.message.chat.id
-
-    # -----------------------------------------------------
-    # البحث
-    # -----------------------------------------------------
-
-    if call.data == "search":
-
-        bot.answer_callback_query(
-            call.id
-        )
-
-        msg = bot.send_message(
+        sherlock_sessions.pop(
             chat_id,
-            """
-<b>🔎 البحث عن رقم</b>
-
-أرسل رقم الهاتف.
-
-مثال:
-
-<code>+967771234567</code>
-"""
-        )
-
-        bot.register_next_step_handler(
-            msg,
-            process_search
-        )
-
-    # -----------------------------------------------------
-    # المعلومات
-    # -----------------------------------------------------
-
-    elif call.data == "info":
-
-        bot.answer_callback_query(
-            call.id
-        )
-
-        msg = bot.send_message(
-            chat_id,
-            """
-<b>📱 معلومات الرقم</b>
-
-أرسل رقم الهاتف.
-
-مثال:
-
-<code>+967771234567</code>
-"""
-        )
-
-        bot.register_next_step_handler(
-            msg,
-            process_info
-        )
-
-    # -----------------------------------------------------
-    # إضافة رقم
-    # -----------------------------------------------------
-
-    elif call.data == "add":
-
-        bot.answer_callback_query(
-            call.id
-        )
-
-        msg = bot.send_message(
-            chat_id,
-            """
-<b>➕ إضافة رقمك</b>
-
-أرسل رقمك بصيغة دولية.
-
-مثال:
-
-<code>+967771234567</code>
-"""
-        )
-
-        bot.register_next_step_handler(
-            msg,
-            process_add_phone
-        )
-
-    # -----------------------------------------------------
-    # حذف رقم
-    # -----------------------------------------------------
-
-    elif call.data == "delete":
-
-        bot.answer_callback_query(
-            call.id
-        )
-
-        msg = bot.send_message(
-            chat_id,
-            """
-<b>🗑 حذف رقمك</b>
-
-أرسل الرقم الذي تريد حذفه.
-"""
-        )
-
-        bot.register_next_step_handler(
-            msg,
-            process_delete
-        )
-
-    # -----------------------------------------------------
-    # الإحصائيات
-    # -----------------------------------------------------
-
-    elif call.data == "stats":
-
-        bot.answer_callback_query(
-            call.id
-        )
-
-        text = f"""
-<b>📊 إحصائيات Numberbook</b>
-
-👥 المستخدمون:
-<b>{count_users()}</b>
-
-📞 الأرقام:
-<b>{count_numbers()}</b>
-
-🔎 عمليات البحث:
-<b>{count_searches()}</b>
-"""
-
-        bot.send_message(
-            chat_id,
-            text,
-            reply_markup=main_keyboard()
-        )
-
-    # -----------------------------------------------------
-    # المساعدة
-    # -----------------------------------------------------
-
-    elif call.data == "help":
-
-        bot.answer_callback_query(
-            call.id
-        )
-
-        help_command(
-            call.message
-        )
-
-    # -----------------------------------------------------
-    # 🕵️ Sherlock
-    # -----------------------------------------------------
-
-    elif call.data == "sherlock":
-
-        bot.answer_callback_query(
-            call.id
-        )
-
-        msg = bot.send_message(
-            chat_id,
-            """
-<b>🕵️ Sherlock Username Search</b>
-
-أرسل Username الذي تريد البحث عنه.
-
-مثال:
-
-<code>github</code>
-
-أو:
-
-<code>@github</code>
-
-⏳ سيتم البحث في المواقع التي يدعمها Sherlock.
-"""
-        )
-
-        bot.register_next_step_handler(
-            msg,
-            process_sherlock
+            None
         )
 
 
@@ -694,10 +670,6 @@ def build_search_result(phone):
     numberbook_source = None
     veriphone_source = None
 
-    # -----------------------------------------------------
-    # استخراج المصادر
-    # -----------------------------------------------------
-
     for source in sources:
 
         source_name = source.get(
@@ -716,17 +688,9 @@ def build_search_result(phone):
 
             veriphone_source = source
 
-    # -----------------------------------------------------
-    # حماية
-    # -----------------------------------------------------
-
     if not phone_source:
 
         return None
-
-    # -----------------------------------------------------
-    # البيانات الأساسية
-    # -----------------------------------------------------
 
     e164 = phone_source.get(
         "phone"
@@ -757,29 +721,25 @@ def build_search_result(phone):
         False
     )
 
-    # -----------------------------------------------------
-    # Numberbook
-    # -----------------------------------------------------
-
     registered_name = "غير مسجل"
 
     numberbook_found = False
 
     if numberbook_source:
 
-        if numberbook_source.get("found"):
+        if numberbook_source.get(
+            "found"
+        ):
 
             numberbook_found = True
 
             registered_name = (
-                numberbook_source.get("name")
+                numberbook_source.get(
+                    "name"
+                )
                 or
                 "غير مسجل"
             )
-
-    # -----------------------------------------------------
-    # Veriphone
-    # -----------------------------------------------------
 
     veriphone_ok = False
 
@@ -790,7 +750,9 @@ def build_search_result(phone):
 
     if veriphone_source:
 
-        if veriphone_source.get("success"):
+        if veriphone_source.get(
+            "success"
+        ):
 
             veriphone_ok = True
 
@@ -855,10 +817,6 @@ def process_search(message):
 
         return
 
-    # -----------------------------------------------------
-    # التحليل الأولي لتوحيد الرقم
-    # -----------------------------------------------------
-
     result = analyze_phone(
         message.text,
         default_region="YE"
@@ -894,18 +852,10 @@ def process_search(message):
 
     phone = result["e164"]
 
-    # -----------------------------------------------------
-    # تسجيل البحث
-    # -----------------------------------------------------
-
     add_search(
         message.from_user.id,
         phone
     )
-
-    # -----------------------------------------------------
-    # Data Sources Engine
-    # -----------------------------------------------------
 
     try:
 
@@ -941,20 +891,12 @@ def process_search(message):
 
         return
 
-    # -----------------------------------------------------
-    # حالة الرقم
-    # -----------------------------------------------------
-
     valid_status = (
         "✅ رقم صالح"
         if search_result["valid"]
         else
         "❌ رقم غير صالح"
     )
-
-    # -----------------------------------------------------
-    # حالة Numberbook
-    # -----------------------------------------------------
 
     if search_result["numberbook_found"]:
 
@@ -968,41 +910,33 @@ def process_search(message):
             "❌ الرقم غير موجود في Numberbook"
         )
 
-    # -----------------------------------------------------
-    # بناء الرسالة
-    # -----------------------------------------------------
-
     text = f"""
 <b>🔎 نتيجة البحث</b>
 
 📞 <b>الرقم:</b>
-<code>{search_result["phone"]}</code>
+<code>{html.escape(str(search_result["phone"]))}</code>
 
 🌍 <b>الدولة:</b>
-{search_result["country"]}
+{html.escape(str(search_result["country"]))}
 
 📱 <b>نوع الرقم:</b>
-{search_result["type"]}
+{html.escape(str(search_result["type"]))}
 
 📡 <b>شركة الاتصالات:</b>
-{search_result["carrier"]}
+{html.escape(str(search_result["carrier"]))}
 
 🔢 <b>الصيغة الدولية:</b>
-<code>{search_result["international"]}</code>
+<code>{html.escape(str(search_result["international"]))}</code>
 
 <b>{valid_status}</b>
 
 ━━━━━━━━━━━━━━
 
 👤 <b>الاسم في Numberbook:</b>
-{search_result["name"]}
+{html.escape(str(search_result["name"]))}
 
 {numberbook_status}
 """
-
-    # -----------------------------------------------------
-    # Veriphone
-    # -----------------------------------------------------
 
     if search_result["veriphone_ok"]:
 
@@ -1017,41 +951,63 @@ def process_search(message):
         if search_result["veriphone_country"]:
 
             text += (
-                f"🌍 الدولة: "
-                f"{search_result['veriphone_country']}\n"
+                "🌍 الدولة: "
+                + html.escape(
+                    str(
+                        search_result[
+                            "veriphone_country"
+                        ]
+                    )
+                )
+                + "\n"
             )
 
         if search_result["veriphone_type"]:
 
             text += (
-                f"📱 النوع: "
-                f"{search_result['veriphone_type']}\n"
+                "📱 النوع: "
+                + html.escape(
+                    str(
+                        search_result[
+                            "veriphone_type"
+                        ]
+                    )
+                )
+                + "\n"
             )
 
         if search_result["veriphone_carrier"]:
 
             text += (
-                f"📡 الشركة: "
-                f"{search_result['veriphone_carrier']}\n"
+                "📡 الشركة: "
+                + html.escape(
+                    str(
+                        search_result[
+                            "veriphone_carrier"
+                        ]
+                    )
+                )
+                + "\n"
             )
 
-        if search_result["veriphone_valid"] is not None:
+        if search_result[
+            "veriphone_valid"
+        ] is not None:
 
             external_valid = (
                 "✅ صالح"
-                if search_result["veriphone_valid"]
+                if search_result[
+                    "veriphone_valid"
+                ]
                 else
                 "❌ غير صالح"
             )
 
             text += (
-                f"🔍 التحقق الخارجي: "
-                f"{external_valid}\n"
+                "🔍 التحقق الخارجي: "
+                + external_valid
+                + "\n"
             )
-
-    # -----------------------------------------------------
-    # مصادر المعلومات
-    # -----------------------------------------------------
 
     text += """
 
@@ -1073,10 +1029,6 @@ def process_search(message):
             "🌐 Veriphone: "
             "غير متاح حاليًا\n"
         )
-
-    # -----------------------------------------------------
-    # إرسال النتيجة
-    # -----------------------------------------------------
 
     bot.send_message(
         message.chat.id,
@@ -1128,10 +1080,6 @@ def process_info(message):
 
         return
 
-    # -----------------------------------------------------
-    # Data Sources
-    # -----------------------------------------------------
-
     try:
 
         search_result = build_search_result(
@@ -1145,10 +1093,6 @@ def process_info(message):
         )
 
         search_result = None
-
-    # -----------------------------------------------------
-    # إذا تعذر المصدر الجديد
-    # -----------------------------------------------------
 
     if not search_result:
 
@@ -1170,22 +1114,22 @@ def process_info(message):
 <b>📱 معلومات الرقم</b>
 
 📞 الرقم:
-<code>{result["e164"]}</code>
+<code>{html.escape(str(result["e164"]))}</code>
 
 🌍 الدولة:
-<b>{result["country"]}</b>
+<b>{html.escape(str(result["country"]))}</b>
 
 📍 المنطقة:
-<b>{result["region"]}</b>
+<b>{html.escape(str(result["region"]))}</b>
 
 📱 نوع الرقم:
-<b>{result["type"]}</b>
+<b>{html.escape(str(result["type"]))}</b>
 
 📡 شركة الاتصالات:
-<b>{result["carrier"]}</b>
+<b>{html.escape(str(result["carrier"]))}</b>
 
 🔢 الصيغة الدولية:
-<code>{result["international"]}</code>
+<code>{html.escape(str(result["international"]))}</code>
 
 ━━━━━━━━━━━━━━
 
@@ -1207,10 +1151,6 @@ def process_info(message):
 
         return
 
-    # -----------------------------------------------------
-    # النتيجة
-    # -----------------------------------------------------
-
     valid = (
         "✅ صالح"
         if search_result["valid"]
@@ -1222,19 +1162,19 @@ def process_info(message):
 <b>📱 معلومات الرقم</b>
 
 📞 الرقم:
-<code>{search_result["phone"]}</code>
+<code>{html.escape(str(search_result["phone"]))}</code>
 
 🌍 الدولة:
-<b>{search_result["country"]}</b>
+<b>{html.escape(str(search_result["country"]))}</b>
 
 📱 نوع الرقم:
-<b>{search_result["type"]}</b>
+<b>{html.escape(str(search_result["type"]))}</b>
 
 📡 شركة الاتصالات:
-<b>{search_result["carrier"]}</b>
+<b>{html.escape(str(search_result["carrier"]))}</b>
 
 🔢 الصيغة الدولية:
-<code>{search_result["international"]}</code>
+<code>{html.escape(str(search_result["international"]))}</code>
 
 ━━━━━━━━━━━━━━
 
@@ -1242,28 +1182,32 @@ def process_info(message):
 {valid}
 
 👤 الاسم في Numberbook:
-<b>{search_result["name"]}</b>
+<b>{html.escape(str(search_result["name"]))}</b>
 """
 
     if search_result["veriphone_ok"]:
 
-        external_status = "غير متوفر"
-
         if search_result["veriphone_valid"] is True:
+
             external_status = "✅ صالح"
 
         elif search_result["veriphone_valid"] is False:
+
             external_status = "❌ غير صالح"
+
+        else:
+
+            external_status = "غير متوفر"
 
         text += f"""
 
 🌐 <b>Veriphone</b>
 
 📱 النوع:
-{search_result["veriphone_type"] or "غير متوفر"}
+{html.escape(str(search_result["veriphone_type"] or "غير متوفر"))}
 
 📡 الشركة:
-{search_result["veriphone_carrier"] or "غير متوفر"}
+{html.escape(str(search_result["veriphone_carrier"] or "غير متوفر"))}
 
 🔍 التحقق الخارجي:
 {external_status}
@@ -1306,7 +1250,7 @@ def process_add_phone(message):
 
         bot.send_message(
             message.chat.id,
-            "❌ أرسل رقم هاتف صحيح.",
+            "❌ أرسل رقمًا صحيحًا.",
             reply_markup=main_keyboard()
         )
 
@@ -1329,7 +1273,9 @@ def process_add_phone(message):
 
     phone = result["e164"]
 
-    existing = find_number(phone)
+    existing = find_number(
+        phone
+    )
 
     if existing:
 
@@ -1411,13 +1357,13 @@ def save_number(
 <b>✅ تم تسجيل الرقم</b>
 
 📞 الرقم:
-<code>{phone}</code>
+<code>{html.escape(str(phone))}</code>
 
 👤 الاسم:
-<b>{name}</b>
+<b>{html.escape(str(name))}</b>
 
 🌍 الدولة:
-<b>{country}</b>
+<b>{html.escape(str(country))}</b>
 
 يمكنك حذف الرقم لاحقًا من زر 🗑 حذف رقمي.
 """,
@@ -1445,7 +1391,7 @@ def process_delete(message):
 
         bot.send_message(
             message.chat.id,
-            "❌ أرسل رقم هاتف صحيح.",
+            "❌ أرسل الرقم.",
             reply_markup=main_keyboard()
         )
 
@@ -1478,7 +1424,7 @@ def process_delete(message):
             f"""
 <b>✅ تم حذف الرقم</b>
 
-<code>{result["e164"]}</code>
+<code>{html.escape(str(result["e164"]))}</code>
 """,
             reply_markup=main_keyboard()
         )
@@ -1497,10 +1443,392 @@ def process_delete(message):
 
 
 # =========================================================
+# الأزرار
+# =========================================================
+
+@bot.callback_query_handler(
+    func=lambda call: True
+)
+def callback_handler(call):
+
+    chat_id = call.message.chat.id
+
+    # =====================================================
+    # Sherlock
+    # =====================================================
+
+    if call.data == "sherlock":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        start_sherlock_selection(
+            call.message
+        )
+
+        return
+
+    # =====================================================
+    # اختيار منصة Sherlock
+    # =====================================================
+
+    if call.data.startswith(
+        "shp:"
+    ):
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        platform = call.data[
+            4:
+        ]
+
+        if chat_id not in sherlock_sessions:
+
+            sherlock_sessions[
+                chat_id
+            ] = set()
+
+        selected = sherlock_sessions[
+            chat_id
+        ]
+
+        if platform in selected:
+
+            selected.remove(
+                platform
+            )
+
+        else:
+
+            selected.add(
+                platform
+            )
+
+        try:
+
+            bot.edit_message_text(
+                sherlock_selection_text(
+                    chat_id
+                ),
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=sherlock_keyboard(
+                    chat_id
+                )
+            )
+
+        except Exception as error:
+
+            print(
+                "Sherlock keyboard update:",
+                error
+            )
+
+        return
+
+    # =====================================================
+    # اختيار الكل
+    # =====================================================
+
+    if call.data == "shp_all":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        sherlock_sessions[
+            chat_id
+        ] = set(
+            get_platforms().keys()
+        )
+
+        try:
+
+            bot.edit_message_text(
+                sherlock_selection_text(
+                    chat_id
+                ),
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=sherlock_keyboard(
+                    chat_id
+                )
+            )
+
+        except Exception as error:
+
+            print(
+                "Sherlock all error:",
+                error
+            )
+
+        return
+
+    # =====================================================
+    # إلغاء الكل
+    # =====================================================
+
+    if call.data == "shp_none":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        sherlock_sessions[
+            chat_id
+        ] = set()
+
+        try:
+
+            bot.edit_message_text(
+                sherlock_selection_text(
+                    chat_id
+                ),
+                chat_id=chat_id,
+                message_id=call.message.message_id,
+                reply_markup=sherlock_keyboard(
+                    chat_id
+                )
+            )
+
+        except Exception as error:
+
+            print(
+                "Sherlock none error:",
+                error
+            )
+
+        return
+
+    # =====================================================
+    # بدء البحث
+    # =====================================================
+
+    if call.data == "shp_start":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        selected = sherlock_sessions.get(
+            chat_id,
+            set()
+        )
+
+        if not selected:
+
+            bot.answer_callback_query(
+                call.id,
+                "❌ اختر منصة واحدة على الأقل.",
+                show_alert=True
+            )
+
+            return
+
+        ask_sherlock_username(
+            call.message
+        )
+
+        return
+
+    # =====================================================
+    # إلغاء Sherlock
+    # =====================================================
+
+    if call.data == "shp_cancel":
+
+        bot.answer_callback_query(
+            call.id,
+            "تم إلغاء البحث."
+        )
+
+        sherlock_sessions.pop(
+            chat_id,
+            None
+        )
+
+        bot.send_message(
+            chat_id,
+            "❌ تم إلغاء Sherlock.",
+            reply_markup=main_keyboard()
+        )
+
+        return
+
+    # =====================================================
+    # البحث عن رقم
+    # =====================================================
+
+    if call.data == "search":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        msg = bot.send_message(
+            chat_id,
+            """
+<b>🔎 البحث عن رقم</b>
+
+أرسل رقم الهاتف.
+
+مثال:
+
+<code>+967771234567</code>
+"""
+        )
+
+        bot.register_next_step_handler(
+            msg,
+            process_search
+        )
+
+        return
+
+    # =====================================================
+    # معلومات الرقم
+    # =====================================================
+
+    if call.data == "info":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        msg = bot.send_message(
+            chat_id,
+            """
+<b>📱 معلومات الرقم</b>
+
+أرسل رقم الهاتف.
+
+مثال:
+
+<code>+967771234567</code>
+"""
+        )
+
+        bot.register_next_step_handler(
+            msg,
+            process_info
+        )
+
+        return
+
+    # =====================================================
+    # إضافة رقم
+    # =====================================================
+
+    if call.data == "add":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        msg = bot.send_message(
+            chat_id,
+            """
+<b>➕ إضافة رقمك</b>
+
+أرسل رقمك بصيغة دولية.
+
+مثال:
+
+<code>+967771234567</code>
+"""
+        )
+
+        bot.register_next_step_handler(
+            msg,
+            process_add_phone
+        )
+
+        return
+
+    # =====================================================
+    # حذف رقم
+    # =====================================================
+
+    if call.data == "delete":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        msg = bot.send_message(
+            chat_id,
+            """
+<b>🗑 حذف رقمك</b>
+
+أرسل الرقم الذي تريد حذفه.
+"""
+        )
+
+        bot.register_next_step_handler(
+            msg,
+            process_delete
+        )
+
+        return
+
+    # =====================================================
+    # الإحصائيات
+    # =====================================================
+
+    if call.data == "stats":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        text = f"""
+<b>📊 إحصائيات Numberbook</b>
+
+👥 المستخدمون:
+<b>{count_users()}</b>
+
+📞 الأرقام:
+<b>{count_numbers()}</b>
+
+🔎 عمليات البحث:
+<b>{count_searches()}</b>
+"""
+
+        bot.send_message(
+            chat_id,
+            text,
+            reply_markup=main_keyboard()
+        )
+
+        return
+
+    # =====================================================
+    # المساعدة
+    # =====================================================
+
+    if call.data == "help":
+
+        bot.answer_callback_query(
+            call.id
+        )
+
+        help_command(
+            call.message
+        )
+
+        return
+
+
+# =========================================================
 # الرسائل العادية
 # =========================================================
 
-@bot.message_handler(func=lambda message: True)
+@bot.message_handler(
+    func=lambda message: True
+)
 def handle_message(message):
 
     register_user(message)
@@ -1509,18 +1837,6 @@ def handle_message(message):
 
         return
 
-    # -----------------------------------------------------
-    # لا نعالج الأوامر كأرقام هاتف
-    # -----------------------------------------------------
-
-    if message.text.startswith("/"):
-
-        return
-
-    # -----------------------------------------------------
-    # إذا كان النص رقم هاتف
-    # -----------------------------------------------------
-
     result = analyze_phone(
         message.text,
         default_region="YE"
@@ -1528,13 +1844,11 @@ def handle_message(message):
 
     if result and result["possible"]:
 
-        process_search(message)
+        process_search(
+            message
+        )
 
         return
-
-    # -----------------------------------------------------
-    # رسالة غير معروفة
-    # -----------------------------------------------------
 
     bot.send_message(
         message.chat.id,
@@ -1549,9 +1863,9 @@ def handle_message(message):
 
 أو:
 
-/sherlock username
+/sherlock
 
-للبحث عن Username باستخدام Sherlock.
+لبحث Username.
 """,
         reply_markup=main_keyboard()
     )
@@ -1563,16 +1877,45 @@ def handle_message(message):
 
 if __name__ == "__main__":
 
-    print("=" * 60)
-    print(f"📞 {BOT_NAME}")
-    print(f"🚀 Version: {BOT_VERSION}")
-    print("📱 Phone Engine: ACTIVE")
-    print("👤 Numberbook: ACTIVE")
-    print("🌐 Veriphone: CONNECTED")
-    print("🔎 Data Sources Engine: ACTIVE")
-    print("🕵️ Sherlock: ACTIVE")
-    print("🤖 Bot is running...")
-    print("=" * 60)
+    print(
+        "=" * 60
+    )
+
+    print(
+        f"📞 {BOT_NAME}"
+    )
+
+    print(
+        f"🚀 Version: {BOT_VERSION}"
+    )
+
+    print(
+        "📱 Phone Engine: ACTIVE"
+    )
+
+    print(
+        "👤 Numberbook: ACTIVE"
+    )
+
+    print(
+        "🌐 Veriphone: CONNECTED"
+    )
+
+    print(
+        "🕵️ Sherlock: ACTIVE"
+    )
+
+    print(
+        "🎯 Sherlock Platforms: 10"
+    )
+
+    print(
+        "🤖 Bot is running..."
+    )
+
+    print(
+        "=" * 60
+    )
 
     bot.infinity_polling(
         skip_pending=True,
