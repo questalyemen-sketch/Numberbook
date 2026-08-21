@@ -302,7 +302,8 @@ def sherlock_selection_text(chat_id):
                     platforms[key]
                 )
 
-        selected_text = "\n".join(
+        selected_text = "
+".join(
             f"• {name}"
             for name in names
         )
@@ -559,8 +560,11 @@ def process_sherlock_username(message):
         # -------------------------------------------------
 
         result_text += (
-            "\n\n"
-            "🌐 <b>المنصات التي تم اختيارها:</b>\n"
+            "
+
+"
+            "🌐 <b>المنصات التي تم اختيارها:</b>
+"
             + html.escape(
                 selected_text
             )
@@ -959,7 +963,8 @@ def process_search(message):
                         ]
                     )
                 )
-                + "\n"
+                + "
+"
             )
 
         if search_result["veriphone_type"]:
@@ -973,7 +978,8 @@ def process_search(message):
                         ]
                     )
                 )
-                + "\n"
+                + "
+"
             )
 
         if search_result["veriphone_carrier"]:
@@ -987,7 +993,8 @@ def process_search(message):
                         ]
                     )
                 )
-                + "\n"
+                + "
+"
             )
 
         if search_result[
@@ -1006,7 +1013,8 @@ def process_search(message):
             text += (
                 "🔍 التحقق الخارجي: "
                 + external_valid
-                + "\n"
+                + "
+"
             )
 
     text += """
@@ -1021,13 +1029,15 @@ def process_search(message):
 
     if search_result["veriphone_ok"]:
 
-        text += "🌐 Veriphone\n"
+        text += "🌐 Veriphone
+"
 
     else:
 
         text += (
             "🌐 Veriphone: "
-            "غير متاح حاليًا\n"
+            "غير متاح حاليًا
+"
         )
 
     bot.send_message(
@@ -1872,9 +1882,6 @@ def handle_message(message):
 
 
 # =========================================================
-# التشغيل
-# =========================================================
-# =========================================================
 # اختبار بسيط لـ Enrichment
 # =========================================================
 
@@ -1884,9 +1891,6 @@ def test_github_simple(message):
     اختبار بسيط جدًا: /testgithub <username>
     يعرض معلومات GitHub فقط
     """
-    import html
-    import asyncio
-    
     args = message.text.split()
     
     if len(args) < 2:
@@ -1946,6 +1950,12 @@ Username: <code>{html.escape(username)}</code>
         )
     
     asyncio.run(get_github())
+
+
+# =========================================================
+# التشغيل
+# =========================================================
+
 if __name__ == "__main__":
 
     print(
