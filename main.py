@@ -1874,7 +1874,78 @@ def handle_message(message):
 # =========================================================
 # التشغيل
 # =========================================================
+# =========================================================
+# اختبار بسيط لـ Enrichment
+# =========================================================
 
+@bot.message_handler(commands=["testgithub"])
+def test_github_simple(message):
+    """
+    اختبار بسيط جدًا: /testgithub <username>
+    يعرض معلومات GitHub فقط
+    """
+    import html
+    import asyncio
+    
+    args = message.text.split()
+    
+    if len(args) < 2:
+        bot.send_message(
+            message.chat.id,
+            "❌ اكتب: /testgithub <username>
+
+مثال:
+/testgithub torvalds",
+            reply_markup=main_keyboard()
+        )
+        return
+    
+    username = args[1]
+    
+    bot.send_message(
+        message.chat.id,
+        f"🔎 جاري البحث عن <code>{html.escape(username)}</code> في GitHub...",
+        reply_markup=types.ReplyKeyboardRemove()
+    )
+    
+    async def get_github():
+        from platform_enrichment import enrich_account
+        
+        result = await enrich_account("github", username, timeout=8)
+        
+        if result["found"]:
+            text = f"""
+✅ <b>GitHub - تم العثور على الحساب</b>
+
+👤 الاسم: <code>{html.escape(str(result['display_name'] or 'غير متوفر'))}</code>
+
+📝 النبذة: <code>{html.escape(str(result['bio'] or 'لا توجد'))}</code>
+
+👥 المتابعون: <code>{result['followers']}</code>
+
+📊 المشاريع: <code>{result['posts']}</code>
+
+📍 الموقع: <code>{html.escape(str(result['location'] or 'غير متوفر'))}</code>
+
+🔗 <a href="{html.escape(result['url'])}">{html.escape(result['url'])}</a>
+"""
+        else:
+            text = f"""
+❌ <b>GitHub - الحساب غير موجود</b>
+
+Username: <code>{html.escape(username)}</code>
+
+🔗 <a href="{html.escape(result['url'])}">{html.escape(result['url'])}</a>
+"""
+        
+        bot.send_message(
+            message.chat.id,
+            text,
+            reply_markup=main_keyboard(),
+            parse_mode="HTML"
+        )
+    
+    asyncio.run(get_github())
 if __name__ == "__main__":
 
     print(
