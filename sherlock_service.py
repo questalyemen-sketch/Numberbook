@@ -2,24 +2,26 @@
 Sherlock Service
 ================
 
-واجهة ربط Sherlock مع Numberbook.
+Sherlock integration for Numberbook Telegram Bot.
 
-الوظائف:
-- تنظيف Username
-- البحث باستخدام Sherlock
-- تشغيل البحث في Thread
-- استخراج النتائج المؤكدة
-- تنسيق النتائج لـ Telegram
-- تقسيم الرسائل الطويلة
+يدعم البحث المحدد في أشهر المنصات بدل فحص 400+ موقع.
 
-ملاحظة:
-عدم العثور على حساب لا يعني بالضرورة أن الحساب غير موجود؛
-قد تفشل بعض المواقع أو تحجب طلبات البحث.
+المنصات:
+- Telegram
+- Instagram
+- Facebook
+- Twitter / X
+- LinkedIn
+- TikTok
+- YouTube
+- GitHub
+- Reddit
+- Pinterest
 """
 
 import asyncio
 import re
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from sherlock_project.sherlock import sherlock
 from sherlock_project.sites import SitesInformation
@@ -31,16 +33,111 @@ from sherlock_project.notify import QueryNotifyPrint
 # الإعدادات
 # ============================================================
 
-# مهلة كل موقع
-DEFAULT_TIMEOUT = 10
+DEFAULT_TIMEOUT = 8
 
-# أقصى طول لاسم المستخدم
 MAX_USERNAME_LENGTH = 50
 
-# عدد الأحرف المسموحة
 USERNAME_PATTERN = re.compile(
     r"^[A-Za-z0-9._-]{1,50}$"
 )
+
+
+# ============================================================
+# المنصات المدعومة في البوت
+# ============================================================
+
+PLATFORM_ALIASES = {
+
+    "telegram": [
+        "Telegram"
+    ],
+
+    "instagram": [
+        "Instagram"
+    ],
+
+    "facebook": [
+        "Facebook"
+    ],
+
+    "twitter": [
+        "Twitter"
+    ],
+
+    "x": [
+        "Twitter"
+    ],
+
+    "linkedin": [
+        "LinkedIn"
+    ],
+
+    "tiktok": [
+        "TikTok"
+    ],
+
+    "youtube": [
+        "YouTube"
+    ],
+
+    "github": [
+        "GitHub"
+    ],
+
+    "reddit": [
+        "Reddit"
+    ],
+
+    "pinterest": [
+        "Pinterest"
+    ]
+}
+
+
+# ============================================================
+# أسماء العرض في Telegram
+# ============================================================
+
+PLATFORM_NAMES = {
+
+    "telegram": "📱 Telegram",
+
+    "instagram": "📸 Instagram",
+
+    "facebook": "👤 Facebook",
+
+    "twitter": "𝕏 X / Twitter",
+
+    "linkedin": "💼 LinkedIn",
+
+    "tiktok": "🎵 TikTok",
+
+    "youtube": "▶️ YouTube",
+
+    "github": "🐙 GitHub",
+
+    "reddit": "🤖 Reddit",
+
+    "pinterest": "📌 Pinterest"
+}
+
+
+# ============================================================
+# المنصات الافتراضية العشر
+# ============================================================
+
+DEFAULT_PLATFORMS = [
+    "telegram",
+    "instagram",
+    "facebook",
+    "twitter",
+    "linkedin",
+    "tiktok",
+    "youtube",
+    "github",
+    "reddit",
+    "pinterest"
+]
 
 
 # ============================================================
@@ -53,29 +150,38 @@ def clean_username(username: str) -> str:
     """
 
     if username is None:
+
         raise ValueError(
             "لم يتم إدخال Username."
         )
 
-    username = str(username).strip()
+    username = str(
+        username
+    ).strip()
 
     # إزالة @
     if username.startswith("@"):
+
         username = username[1:]
 
     username = username.strip()
 
     if not username:
+
         raise ValueError(
             "Username فارغ."
         )
 
     if len(username) > MAX_USERNAME_LENGTH:
+
         raise ValueError(
             "Username طويل جدًا."
         )
 
-    if not USERNAME_PATTERN.fullmatch(username):
+    if not USERNAME_PATTERN.fullmatch(
+        username
+    ):
+
         raise ValueError(
             "Username غير صالح.\n\n"
             "استخدم الأحرف الإنجليزية والأرقام "
@@ -90,21 +196,24 @@ def clean_username(username: str) -> str:
 # تحميل مواقع Sherlock
 # ============================================================
 
-def load_sites() -> Dict[str, Any]:
+def load_all_sites() -> Dict[str, Any]:
     """
-    تحميل مواقع Sherlock واستبعاد المواقع المصنفة NSFW.
+    تحميل بيانات جميع المواقع من Sherlock.
     """
 
     sites = SitesInformation(
         honor_exclusions=True
     )
 
-    # لا نريد مواقع NSFW في بوت عام
+    # إزالة NSFW
     try:
+
         sites.remove_nsfw_sites()
+
     except Exception as error:
+
         print(
-            f"⚠️ تعذر إزالة NSFW sites: {error}"
+            f"⚠️ NSFW filter error: {error}"
         )
 
     return {
@@ -114,48 +223,176 @@ def load_sites() -> Dict[str, Any]:
 
 
 # ============================================================
+# البحث عن اسم موقع Sherlock
+# ============================================================
+
+def find_site_name(
+    all_sites: Dict[str, Any],
+    aliases: List[str]
+) -> Optional[str]:
+    """
+    العثور على الاسم الحقيقي للموقع داخل Sherlock.
+
+    المقارنة غير حساسة لحالة الأحرف.
+    """
+
+    normalized = {
+        name.lower(): name
+        for name in all_sites
+    }
+
+    for alias in aliases:
+
+        result = normalized.get(
+            alias.lower()
+        )
+
+        if result:
+
+            return result
+
+    return None
+
+
+# ============================================================
+# بناء قائمة المواقع المختارة
+# ============================================================
+
+def build_selected_sites(
+    selected_platforms: Optional[List[str]] = None
+) -> Dict[str, Any]:
+    """
+    بناء site_data يحتوي فقط على المنصات المطلوبة.
+    """
+
+    all_sites = load_all_sites()
+
+    if not selected_platforms:
+
+        selected_platforms = DEFAULT_PLATFORMS
+
+    selected_sites = {}
+
+    missing = []
+
+    for platform in selected_platforms:
+
+        platform_key = str(
+            platform
+        ).lower().strip()
+
+        aliases = PLATFORM_ALIASES.get(
+            platform_key
+        )
+
+        if not aliases:
+
+            missing.append(
+                platform_key
+            )
+
+            continue
+
+        site_name = find_site_name(
+            all_sites,
+            aliases
+        )
+
+        if site_name:
+
+            selected_sites[
+                site_name
+            ] = all_sites[
+                site_name
+            ]
+
+        else:
+
+            missing.append(
+                platform_key
+            )
+
+    if missing:
+
+        print(
+            "⚠️ Sherlock platforms not found:",
+            ", ".join(missing)
+        )
+
+    print(
+        f"🎯 Selected Sherlock sites: "
+        f"{len(selected_sites)}"
+    )
+
+    return selected_sites
+
+
+# ============================================================
 # البحث الأساسي
 # ============================================================
 
 def search_username(
     username: str,
-    timeout: int = DEFAULT_TIMEOUT
+    timeout: int = DEFAULT_TIMEOUT,
+    selected_platforms: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """
-    البحث عن Username باستخدام Sherlock.
-
-    يعيد النتائج التي أعلن Sherlock أنها CLAIMED.
+    البحث عن Username في المنصات المحددة فقط.
     """
 
     username = clean_username(
         username
     )
 
+    # --------------------------------------------------------
     # حماية timeout
+    # --------------------------------------------------------
+
     try:
-        timeout = int(timeout)
-    except (TypeError, ValueError):
+
+        timeout = int(
+            timeout
+        )
+
+    except (
+        TypeError,
+        ValueError
+    ):
+
         timeout = DEFAULT_TIMEOUT
 
-    if timeout < 3:
-        timeout = 3
-
-    if timeout > 30:
-        timeout = 30
-
-    # --------------------------------------------------------
-    # تحميل المواقع
-    # --------------------------------------------------------
-
-    site_data = load_sites()
-
-    print(
-        f"🔎 Sherlock: searching '{username}' "
-        f"across {len(site_data)} sites..."
+    timeout = max(
+        3,
+        min(timeout, 20)
     )
 
     # --------------------------------------------------------
-    # إشعارات Sherlock
+    # بناء المواقع المختارة
+    # --------------------------------------------------------
+
+    site_data = build_selected_sites(
+        selected_platforms
+    )
+
+    if not site_data:
+
+        raise RuntimeError(
+            "لم يتم العثور على أي منصة "
+            "صالحة للبحث."
+        )
+
+    print(
+        f"🔎 Sherlock searching: "
+        f"{username}"
+    )
+
+    print(
+        f"🌐 Sites: "
+        f"{', '.join(site_data.keys())}"
+    )
+
+    # --------------------------------------------------------
+    # Notify
     # --------------------------------------------------------
 
     query_notify = QueryNotifyPrint(
@@ -176,7 +413,7 @@ def search_username(
         timeout=timeout
     )
 
-    found_results: List[Dict[str, Any]] = []
+    found_results = []
 
     # --------------------------------------------------------
     # تحليل النتائج
@@ -185,11 +422,29 @@ def search_username(
     for site_name, data in results.items():
 
         if not data:
+
             continue
 
-        status = data.get(
+        status_object = data.get(
             "status"
         )
+
+        # ====================================================
+        # الإصدار الحالي من Sherlock يعيد QueryResult
+        # ====================================================
+
+        if hasattr(
+            status_object,
+            "status"
+        ):
+
+            status = (
+                status_object.status
+            )
+
+        else:
+
+            status = status_object
 
         # ----------------------------------------------------
         # الحساب موجود
@@ -198,14 +453,32 @@ def search_username(
         if status == QueryStatus.CLAIMED:
 
             url = data.get(
-                "url_user",
-                ""
+                "url_user"
             )
 
+            if not url:
+
+                url_main = data.get(
+                    "url_main",
+                    ""
+                )
+
+                if url_main:
+
+                    url = (
+                        url_main.rstrip("/")
+                        + "/"
+                        + username
+                    )
+
             found_results.append({
+
                 "site": site_name,
-                "url": url,
+
+                "url": url or "",
+
                 "status": "found"
+
             })
 
     # --------------------------------------------------------
@@ -222,31 +495,31 @@ def search_username(
     )
 
     print(
-        f"✅ Sherlock: found "
-        f"{len(found_results)} result(s)"
+        f"✅ Sherlock found: "
+        f"{len(found_results)}"
     )
 
     return found_results
 
 
 # ============================================================
-# Async Search
+# Async
 # ============================================================
 
 async def search_username_async(
     username: str,
-    timeout: int = DEFAULT_TIMEOUT
+    timeout: int = DEFAULT_TIMEOUT,
+    selected_platforms: Optional[List[str]] = None
 ) -> List[Dict[str, Any]]:
     """
     تشغيل Sherlock في Thread منفصل.
-
-    هذا يمنع البحث من تجميد Telegram Bot.
     """
 
     return await asyncio.to_thread(
         search_username,
         username,
-        timeout
+        timeout,
+        selected_platforms
     )
 
 
@@ -258,9 +531,6 @@ def format_result_item(
     index: int,
     result: Dict[str, Any]
 ) -> str:
-    """
-    تنسيق نتيجة واحدة.
-    """
 
     site = result.get(
         "site",
@@ -275,12 +545,14 @@ def format_result_item(
     if url:
 
         return (
-            f"{index}. 🌐 <b>{site}</b>\n"
-            f"   {url}"
+            f"{index}. 🌐 "
+            f"<b>{site}</b>\n"
+            f"   🔗 {url}"
         )
 
     return (
-        f"{index}. 🌐 <b>{site}</b>"
+        f"{index}. 🌐 "
+        f"<b>{site}</b>"
     )
 
 
@@ -292,49 +564,46 @@ def format_results(
     username: str,
     results: List[Dict[str, Any]]
 ) -> str:
-    """
-    تحويل نتائج Sherlock إلى رسالة Telegram.
-    """
 
     username = clean_username(
         username
     )
 
-    # --------------------------------------------------------
-    # لا توجد نتائج
-    # --------------------------------------------------------
-
     if not results:
 
         return (
-            "🔎 <b>Sherlock OSINT</b>\n\n"
-            f"👤 Username: "
+            "🕵️ <b>Sherlock</b>\n\n"
+
+            f"👤 Username:\n"
             f"<code>{username}</code>\n\n"
-            "❌ <b>لم يتم العثور على نتائج مؤكدة.</b>\n\n"
-            "قد يعني ذلك عدم وجود تطابق، "
-            "أو أن بعض المواقع لم تسمح بالتحقق."
+
+            "❌ <b>لم يتم العثور على حسابات مؤكدة "
+            "في المنصات المحددة.</b>\n\n"
+
+            "⚠️ قد تكون بعض المنصات قد حجبت "
+            "أو رفضت طلب التحقق."
         )
 
-    # --------------------------------------------------------
-    # بداية الرسالة
-    # --------------------------------------------------------
-
     lines = [
-        "🔎 <b>Sherlock OSINT</b>",
+
+        "🕵️ <b>Sherlock</b>",
+
         "",
-        f"👤 Username: "
+
+        f"👤 Username:\n"
         f"<code>{username}</code>",
+
         "",
+
         f"✅ تم العثور على "
-        f"<b>{len(results)}</b> تطابقات:",
+        f"<b>{len(results)}</b> حساب:",
+
         "",
+
         "━━━━━━━━━━━━━━━━━━",
+
         ""
     ]
-
-    # --------------------------------------------------------
-    # النتائج
-    # --------------------------------------------------------
 
     for index, result in enumerate(
         results,
@@ -350,19 +619,16 @@ def format_results(
 
         lines.append("")
 
-    # --------------------------------------------------------
-    # التنبيه
-    # --------------------------------------------------------
-
     lines.extend([
+
         "━━━━━━━━━━━━━━━━━━",
+
         "",
+
         "⚠️ <b>تنبيه:</b>",
-        "وجود Username مطابق لا يثبت أن "
-        "الحسابات تعود إلى نفس الشخص.",
-        "",
-        "🔎 النتائج هي تطابقات محتملة "
-        "لاسم المستخدم فقط."
+
+        "تطابق Username لا يثبت أن "
+        "الحسابات تعود إلى نفس الشخص."
     ])
 
     return "\n".join(
@@ -371,32 +637,27 @@ def format_results(
 
 
 # ============================================================
-# تقسيم رسائل Telegram
+# تقسيم الرسائل
 # ============================================================
 
 def split_message(
     text: str,
     max_length: int = 4000
 ) -> List[str]:
-    """
-    تقسيم الرسالة الطويلة إلى أجزاء.
-    """
 
     if not text:
+
         return []
 
     if len(text) <= max_length:
+
         return [text]
 
-    chunks: List[str] = []
+    chunks = []
 
     remaining = text
 
     while len(remaining) > max_length:
-
-        # ----------------------------------------------------
-        # حاول التقسيم عند آخر سطر
-        # ----------------------------------------------------
 
         split_at = remaining.rfind(
             "\n",
@@ -404,22 +665,19 @@ def split_message(
             max_length
         )
 
-        # إذا لم نجد سطرًا مناسبًا
         if split_at <= 0:
 
             split_at = max_length
 
-        chunk = remaining[
-            :split_at
-        ]
-
         chunks.append(
-            chunk
+            remaining[:split_at]
         )
 
-        remaining = remaining[
-            split_at:
-        ].lstrip("\n")
+        remaining = (
+            remaining[
+                split_at:
+            ].lstrip("\n")
+        )
 
     if remaining:
 
@@ -431,16 +689,14 @@ def split_message(
 
 
 # ============================================================
-# البحث + التنسيق
+# بحث + تنسيق
 # ============================================================
 
 async def search_and_format(
     username: str,
-    timeout: int = DEFAULT_TIMEOUT
+    timeout: int = DEFAULT_TIMEOUT,
+    selected_platforms: Optional[List[str]] = None
 ) -> str:
-    """
-    تنفيذ البحث ثم تنسيق النتائج.
-    """
 
     username = clean_username(
         username
@@ -448,7 +704,8 @@ async def search_and_format(
 
     results = await search_username_async(
         username,
-        timeout
+        timeout,
+        selected_platforms
     )
 
     return format_results(
@@ -458,52 +715,83 @@ async def search_and_format(
 
 
 # ============================================================
+# معلومات المنصات
+# ============================================================
+
+def get_platforms() -> Dict[str, str]:
+    """
+    إرجاع المنصات التي سيعرضها البوت للمستخدم.
+    """
+
+    return {
+        key: PLATFORM_NAMES[key]
+        for key in DEFAULT_PLATFORMS
+    }
+
+
+# ============================================================
 # معلومات الخدمة
 # ============================================================
 
 def get_service_info() -> Dict[str, Any]:
-    """
-    إرجاع معلومات Sherlock Service.
-    """
 
     return {
+
         "name": "Sherlock",
+
         "type": "Username OSINT",
+
         "timeout": DEFAULT_TIMEOUT,
+
+        "platforms": len(
+            DEFAULT_PLATFORMS
+        ),
+
         "nsfw_sites": False,
+
         "status": "ready"
     }
 
 
 # ============================================================
-# اختبار داخلي اختياري
+# اختبار محلي
 # ============================================================
 
 if __name__ == "__main__":
 
     print(
+        "=" * 50
+    )
+
+    print(
         "🕵️ Sherlock Service Test"
     )
 
-    test_username = "github"
+    print(
+        "=" * 50
+    )
+
+    username = "github"
 
     try:
 
-        result = search_username(
-            test_username
+        results = search_username(
+            username
         )
+
+        print()
 
         print(
             format_results(
-                test_username,
-                result
+                username,
+                results
             )
         )
 
     except Exception as error:
 
         print(
-            "❌ Test Error:"
+            "❌ Error:"
         )
 
         print(
